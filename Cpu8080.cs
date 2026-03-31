@@ -11,9 +11,12 @@ namespace Vector06cEmulator
         private Memory memory;
         public bool Halted { get; private set; } = false;
 
-        public Cpu8080(Memory memory)
+        private IOBus ioBus;
+
+        public Cpu8080(Memory memory, IOBus ioBus)
         {
             this.memory = memory;
+            this.ioBus = ioBus;
         }
 
         public void Step()
@@ -349,8 +352,19 @@ namespace Vector06cEmulator
                 case 0xE9: PC = GetHL(); break;  // PCHL
 
                 // ── IN / OUT ─────────────────────────────────────────
-                case 0xDB: PC++; A = 0xFF; break;   // IN port (заглушка)
-                case 0xD3: PC++; break;              // OUT port (заглушка)
+                case 0xDB:  // IN port
+                    {
+                        byte port = memory.Read(PC++);
+                        A = ioBus.In(port);
+                        break;
+                    }
+
+                case 0xD3:  // OUT port
+                    {
+                        byte port = memory.Read(PC++);
+                        ioBus.Out(port, A);
+                        break;
+                    }
 
                 // ── EI / DI / RIM / SIM / NOP ────────────────────────
                 case 0xFB: break; // EI  — прерывания не реализованы
