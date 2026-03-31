@@ -13,7 +13,8 @@ namespace Vector06cEmulator
             //emu.LoadRom("counter_0_9.bin");
             //emu.LoadRom("counter_2.bin");
             //emu.LoadRom("counter_2.bin");
-            emu.LoadRom("factorial2.bin");
+            //emu.LoadRom("factorial2.bin");
+            emu.LoadRom("binland.rom");
             emu.Run();
 
             Console.ReadLine();
