@@ -278,6 +278,7 @@ namespace Vector06cEmulator
                 case 0x24: H++; break;
                 case 0x2C: L++; break;
                 case 0x3C: // INR A
+                    Console.WriteLine("INR A EXECUTED");
                     A++;
                     SetFlagsZSP(A);
                     break;
