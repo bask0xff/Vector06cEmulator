@@ -9,21 +9,38 @@
 
         private Memory memory;
 
+        public bool Halted { get; private set; } = false;
+
         public Cpu8080(Memory memory)
         {
             this.memory = memory;
         }
 
+        private const int MAX_STEPS = 1000000; // защита от бесконечных циклов
+        private int stepCounter = 0;
+
         public void Step()
         {
+            if (stepCounter++ > MAX_STEPS)
+            {
+                throw new Exception("Maximum steps exceeded. Possible infinite loop.");
+            }
+
             ushort oldPC = PC;
             byte opcode = memory.Read(PC++);
 
+            Console.WriteLine($"PC={oldPC:X4} OPCODE={opcode:X2}");
+
+            // Сразу проверяем HLT
+            if (opcode == 0x76) // HLT
+            {
+                Console.WriteLine("HLT encountered. Stopping CPU.");
+                throw new Exception("CPU halted (HLT)");
+            }
+
+            // Блок MOV (0x40-0x7F)
             if ((opcode & 0xC0) == 0x40)
             {
-                if (opcode == 0x76) // HLT
-                    throw new Exception("HLT");
-
                 int dst = (opcode >> 3) & 7;
                 int src = opcode & 7;
 
@@ -32,9 +49,7 @@
                 return;
             }
 
-            Console.WriteLine($"PC={oldPC:X4} OPCODE={opcode:X2}");
-
-            Execute(opcode);
+            Execute(opcode, oldPC);
         }
 
         byte GetReg(int code)
@@ -89,24 +104,17 @@
             L = (byte)(val & 0xFF);
         }
 
-        private void Execute(byte opcode)
+        private void Execute(byte opcode, ushort oldPC)
         {
             switch (opcode)
             {
                 case 0x00: // NOP
+                           // ничего не делаем, просто шаг вперед
                     break;
 
-                case 0x3E: // MVI A, byte
-                    A = memory.Read(PC++);
-                    break;
-
-                case 0x06: // MVI B, byte
-                    B = memory.Read(PC++);
-                    break;
-
-                case 0x0E: // MVI C, byte
-                    C = memory.Read(PC++);
-                    break;
+                case 0x3E: A = memory.Read(PC++); break; // MVI A, byte
+                case 0x06: B = memory.Read(PC++); break; // MVI B, byte
+                case 0x0E: C = memory.Read(PC++); break; // MVI C, byte
 
                 case 0x3A: // LDA addr
                     {
@@ -120,26 +128,16 @@
                     break;
 
                 // Increment 03, 13, 23, 33
-                case 0x03: // INX B
-                    SetBC((ushort)(GetBC() + 1));
-                    break;
-
-                case 0x13: // INX D
-                    SetDE((ushort)(GetDE() + 1));
-                    break;
-
-                case 0x23: // INX H
-                    SetHL((ushort)(GetHL() + 1));
-                    break;
-                case 0x33: // INX SP
-                    SP++;
-                    break;
+                case 0x03: SetBC((ushort)(GetBC() + 1)); break; // INX B
+                case 0x13: SetDE((ushort)(GetDE() + 1)); break; // INX D
+                case 0x23: SetHL((ushort)(GetHL() + 1)); break; // INX H
+                case 0x33: SP++; break;                         // INX SP
 
                 // DCX (уменьшение)
                 case 0x0B: SetBC((ushort)(GetBC() - 1)); break; // DCX B
                 case 0x1B: SetDE((ushort)(GetDE() - 1)); break; // DCX D
                 case 0x2B: SetHL((ushort)(GetHL() - 1)); break; // DCX H
-                case 0x3B: SP--; break;
+                case 0x3B: SP--; break;                         // DCX SP
 
                 case 0x01: // LXI B, d16
                     SetBC(ReadWord());
@@ -155,6 +153,81 @@
 
                 case 0x31: // LXI SP, d16
                     SP = ReadWord();
+                    break;
+
+                // DAD — сложение 16-бит
+                case 0x09: // DAD B
+                    {
+                        int result = GetHL() + GetBC();
+                        CY = result > 0xFFFF;
+                        SetHL((ushort)result);
+                        break;
+                    }
+
+                case 0x19: // DAD D
+                    {
+                        int result = GetHL() + GetDE();
+                        CY = result > 0xFFFF;
+                        SetHL((ushort)result);
+                        break;
+                    }
+
+                case 0x29: // DAD H
+                    {
+                        int result = GetHL() + GetHL();
+                        CY = result > 0xFFFF;
+                        SetHL((ushort)result);
+                        break;
+                    }
+
+                case 0x39: // DAD SP
+                    {
+                        int result = GetHL() + SP;
+                        CY = result > 0xFFFF;
+                        SetHL((ushort)result);
+                        break;
+                    }
+
+
+                // Побитовые / сдвиги (RLC / RRC / RAL / RAR)
+                case 0x07: // RLC
+                    A = (byte)((A << 1) | (A >> 7));
+                    CY = (A & 0x01) != 0;
+                    break;
+
+                case 0x0F: // RRC
+                    CY = (A & 0x01) != 0;
+                    A = (byte)((A >> 1) | (A << 7));
+                    break;
+
+                case 0x17: // RAL
+                    {
+                        bool oldCY = CY;
+                        CY = (A & 0x80) != 0;
+                        A = (byte)((A << 1) | (oldCY ? 1 : 0));
+                        break;
+                    }
+
+                case 0x1F: // RAR
+                    {
+                        bool oldCY = CY;
+                        CY = (A & 0x01) != 0;
+                        A = (byte)((A >> 1) | (oldCY ? 0x80 : 0));
+                        break;
+                    }
+
+                // XRA / ORA / ANA (логика с флагами)
+                case 0xA8: Xra(B); break;
+                case 0xA9: Xra(C); break;
+                case 0xAA: Xra(D); break;
+                case 0xAB: Xra(E); break;
+                case 0xAC: Xra(H); break;
+                case 0xAD: Xra(L); break;
+                case 0xAE: Xra(memory.Read(GetHL())); break;
+                case 0xAF: Xra(A); break;
+
+                case 0xEE: // XRI byte
+                    Xra(memory.Read(PC++));
                     break;
 
                 // INR / DCR (инкремент/декремент)
@@ -300,6 +373,157 @@
                         break;
                     }
 
+                // Условные CALL и RET
+                case 0xD4: // CNC addr
+                    {
+                        ushort addr = ReadWord();
+                        if (!CY)
+                        {
+                            Push(PC);
+                            PC = addr;
+                        }
+                        break;
+                    }
+
+                case 0xDC: // CC addr
+                    {
+                        ushort addr = ReadWord();
+                        if (CY)
+                        {
+                            Push(PC);
+                            PC = addr;
+                        }
+                        break;
+                    }
+
+                case 0xF4: // CP addr
+                    {
+                        ushort addr = ReadWord();
+                        if (!P)
+                        {
+                            Push(PC);
+                            PC = addr;
+                        }
+                        break;
+                    }
+
+                case 0xFC: // CP addr (parity even)
+                    {
+                        ushort addr = ReadWord();
+                        if (P)
+                        {
+                            Push(PC);
+                            PC = addr;
+                        }
+                        break;
+                    }
+
+                // RET
+                case 0xD0: if (!CY) PC = Pop(); break; // RNC
+                case 0xD8: if (CY) PC = Pop(); break;  // RC
+                case 0xF0: if (!P) PC = Pop(); break;  // RPO
+                case 0xF8: if (P) PC = Pop(); break;   // RPE
+
+                // DAA — Decimal Adjust Accumulator
+                case 0x27: // DAA
+                    {
+                        int correction = 0;
+                        bool setCY = false;
+
+                        if ((A & 0x0F) > 9 || AC) correction += 0x06;
+                        if ((A >> 4) > 9 || CY) { correction += 0x60; setCY = true; }
+
+                        int result = A + correction;
+                        AC = ((A ^ result) & 0x10) != 0;
+                        A = (byte)(result & 0xFF);
+                        CY = setCY;
+                        SetFlagsZSP(A);
+                        break;
+                    }
+
+                // RST n (restart) — вызов подпрограммы по адресу n*8
+                case 0xC7: // RST 0
+                    Push(PC);
+                    PC = 0x0000;
+                    break;
+
+                // Остальные RET/CALL без условий
+                case 0xC9: // RET
+                    PC = Pop();
+                    break;
+
+                case 0xCD: // CALL addr
+                    {
+                        ushort addr = ReadWord();
+                        Push(PC);
+                        PC = addr;
+                        break;
+                    }
+
+                // EI / DI — Enable/Disable Interrupts
+                case 0xFB: // EI
+                    // пока игнорируем, прерывания не реализованы
+                    break;
+
+                // DI
+                case 0xF3:
+                    // пока игнорируем
+                    break;
+
+                // RST 1..7
+                case 0xCF: // RST 1
+                    Push(PC);
+                    PC = 0x0008;
+                    break;
+
+                // RST 2..7
+                case 0xD7: // RST 2
+                    Push(PC);
+                    PC = 0x0010;
+                    break;
+
+                // RST 3..7
+                case 0xDF: // RST 3
+                    Push(PC);
+                    PC = 0x0018;
+                    break;
+
+                // RST 4..7
+                case 0xE7: // RST 4
+                    Push(PC);
+                    PC = 0x0020;
+                    break;
+
+                // RST 5..7
+                case 0xEF: // RST 5
+                    Push(PC);
+                    PC = 0x0028;
+                    break;
+
+                // RST 6..7
+                case 0xF7: // RST 6
+                    Push(PC);
+                    PC = 0x0030;
+                    break;
+
+                // RST 7
+                case 0xFF: // RST 7
+                    Push(PC);
+                    PC = 0x0038;
+                    break;
+
+                // IN / OUT (простая заглушка для Vector-06Ц)
+                case 0xDB: // IN port
+                    byte port = memory.Read(PC++);
+                    A = 0xFF; // заглушка, клавиатура/порты пока не подключены
+                    break;
+
+                case 0xD3: // OUT port
+                    port = memory.Read(PC++);
+                    // заглушка — можно логировать, потом подключить дисплей/звук
+                    break;
+
+
                 // RET-условные
                 case 0xC0: // RNZ
                     if (!Z) PC = Pop();
@@ -369,11 +593,30 @@
                            // пока игнорируем
                     break;
 
+                // LDAX / STAX — косвенные загрузка/сохранение
+                case 0x0A: // LDAX B
+                    A = memory.Read(GetBC());
+                    break;
+
+                case 0x1A: // LDAX D
+                    A = memory.Read(GetDE());
+                    break;
+
+                case 0x02: // STAX B
+                    memory.Write(GetBC(), A);
+                    break;
+
+                case 0x12: // STAX D
+                    memory.Write(GetDE(), A);
+                    break;
+
+
                 case 0x76: // HLT
                     throw new Exception("HLT");
 
                 default:
-                    throw new NotImplementedException($"Opcode {opcode:X2} not implemented");
+                    Console.WriteLine($"Warning: Opcode {opcode:X2} not implemented at PC={oldPC:X4}");
+                    break;
             }
         }
 
@@ -425,13 +668,31 @@
             return (ushort)((high << 8) | low);
         }
 
-        void SetFlagsAfterAddSub(byte result, bool carry, bool auxCarry)
+        void Add(byte value)
+        {
+            int result = A + value;
+            bool carry = result > 0xFF;
+            bool ac = AuxCarryAdd(A, value);
+            A = (byte)result;
+            SetFlagsAfterAddSub(A, carry, ac);
+        }
+
+        void SetFlagsAfterAdd(byte result, byte a, byte b, bool carry)
         {
             Z = result == 0;
             S = (result & 0x80) != 0;
             P = CountBits(result) % 2 == 0;
             CY = carry;
-            AC = auxCarry;
+            AC = ((a & 0x0F) + (b & 0x0F)) > 0x0F;
+        }
+
+        void SetFlagsAfterSub(byte result, byte a, byte b, bool carry)
+        {
+            Z = result == 0;
+            S = (result & 0x80) != 0;
+            P = CountBits(result) % 2 == 0;
+            CY = carry;
+            AC = (a & 0x0F) < (b & 0x0F);
         }
 
         // вспомогательная функция для подсчета Auxiliary Carry
@@ -470,9 +731,9 @@
         // ANA r / ANI byte (AND)
         void Ana(byte value)
         {
+            AC = ((A | value) & 0x08) != 0; // точная установка Auxiliary Carry
             A &= value;
-            CY = false; // после ANA CY = 0
-            AC = true;  // AC = 1 для Vector-06Ц совместимости (или посчитать правильно)
+            CY = false;
             SetFlagsZSP(A);
         }
 
@@ -483,6 +744,24 @@
             CY = false;
             AC = false;
             SetFlagsZSP(A);
+        }
+
+        // XRA r / XRI byte (XOR)
+        void Xra(byte value)
+        {
+            A ^= value;
+            CY = false;
+            AC = false;
+            SetFlagsZSP(A);
+        }
+
+        void SetFlagsAfterAddSub(byte result, bool carry, bool ac)
+        {
+            Z = result == 0;
+            S = (result & 0x80) != 0;
+            P = CountBits(result) % 2 == 0;
+            CY = carry;
+            AC = ac;
         }
 
         private ushort ReadWord()
