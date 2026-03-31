@@ -6,7 +6,7 @@
         {
             var emu = new Emulator();
 
-            emu.LoadRom("test.bin"); 
+            emu.LoadRom("factorial2.bin"); 
             emu.Run();
 
             Console.ReadLine();
