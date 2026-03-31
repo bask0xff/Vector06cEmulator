@@ -309,7 +309,61 @@
                     if (Z) PC = Pop();
                     break;
 
+                // SUB r / SUI byte
+                case 0x90: Sub(B); break;
+                case 0x91: Sub(C); break;
+                case 0x92: Sub(D); break;
+                case 0x93: Sub(E); break;
+                case 0x94: Sub(H); break;
+                case 0x95: Sub(L); break;
+                case 0x96: Sub(memory.Read(GetHL())); break;
+                case 0x97: Sub(A); break;
 
+                // CMP r / CPI byte
+                case 0xB8: Cmp(B); break;
+                case 0xB9: Cmp(C); break;
+                case 0xBA: Cmp(D); break;
+                case 0xBB: Cmp(E); break;
+                case 0xBC: Cmp(H); break;
+                case 0xBD: Cmp(L); break;
+                case 0xBE: Cmp(memory.Read(GetHL())); break;
+                case 0xBF: Cmp(A); break;
+
+                // ANA r / ANI byte (AND)
+                case 0xA0: Ana(B); break;
+                case 0xA1: Ana(C); break;
+                case 0xA2: Ana(D); break;
+                case 0xA3: Ana(E); break;
+                case 0xA4: Ana(H); break;
+                case 0xA5: Ana(L); break;
+                case 0xA6: Ana(memory.Read(GetHL())); break;
+                case 0xA7: Ana(A); break;
+
+                // ORA r / ORI byte (OR)
+                case 0xB0: Ora(B); break;
+                case 0xB1: Ora(C); break;
+                case 0xB2: Ora(D); break;
+                case 0xB3: Ora(E); break;
+                case 0xB4: Ora(H); break;
+                case 0xB5: Ora(L); break;
+                case 0xB6: Ora(memory.Read(GetHL())); break;
+                case 0xB7: Ora(A); break;
+
+                case 0xF6: // ORI byte
+                    Ora(memory.Read(PC++));
+                    break;
+
+                case 0xE6: // ANI byte
+                    Ana(memory.Read(PC++));
+                    break;
+
+                case 0xFE: // CPI byte
+                    Cmp(memory.Read(PC++));
+                    break;
+
+                case 0xD6: // SUI byte
+                    Sub(memory.Read(PC++));
+                    break;
 
                 case 0x30: // SIM
                            // пока игнорируем
@@ -360,22 +414,75 @@
 
         void Push(ushort value)
         {
-            SP--;
-            memory.Write(SP, (byte)(value >> 8)); // high
-
-            SP--;
-            memory.Write(SP, (byte)(value & 0xFF)); // low
+            memory.Write(--SP, (byte)(value >> 8)); // high
+            memory.Write(--SP, (byte)(value & 0xFF)); // low
         }
 
         ushort Pop()
         {
-            byte low = memory.Read(SP);
-            SP++;
+            byte low = memory.Read(SP++);
+            byte high = memory.Read(SP++);
+            return (ushort)((high << 8) | low);
+        }
 
-            byte high = memory.Read(SP);
-            SP++;
+        void SetFlagsAfterAddSub(byte result, bool carry, bool auxCarry)
+        {
+            Z = result == 0;
+            S = (result & 0x80) != 0;
+            P = CountBits(result) % 2 == 0;
+            CY = carry;
+            AC = auxCarry;
+        }
 
-            return (ushort)(low | (high << 8));
+        // вспомогательная функция для подсчета Auxiliary Carry
+        bool AuxCarryAdd(byte a, byte b)
+        {
+            return ((a & 0x0F) + (b & 0x0F)) > 0x0F;
+        }
+
+        bool AuxCarrySub(byte a, byte b)
+        {
+            return (a & 0x0F) < (b & 0x0F);
+        }
+
+        // SUB r / SUI byte
+        void Sub(byte value)
+        {
+            byte oldA = A;
+            int result = A - value;
+            bool ac = AuxCarrySub(A, value);
+            bool cy = result < 0;
+
+            A = (byte)(result & 0xFF);
+            SetFlagsAfterAddSub(A, cy, ac);
+        }
+
+        // CMP r / CPI byte
+        void Cmp(byte value)
+        {
+            int result = A - value;
+            bool ac = AuxCarrySub(A, value);
+            bool cy = result < 0;
+            byte res = (byte)(result & 0xFF);
+            SetFlagsAfterAddSub(res, cy, ac);
+        }
+
+        // ANA r / ANI byte (AND)
+        void Ana(byte value)
+        {
+            A &= value;
+            CY = false; // после ANA CY = 0
+            AC = true;  // AC = 1 для Vector-06Ц совместимости (или посчитать правильно)
+            SetFlagsZSP(A);
+        }
+
+        // ORA r / ORI byte (OR)
+        void Ora(byte value)
+        {
+            A |= value;
+            CY = false;
+            AC = false;
+            SetFlagsZSP(A);
         }
 
         private ushort ReadWord()
