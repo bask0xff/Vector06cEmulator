@@ -1,4 +1,6 @@
-﻿namespace Vector06cEmulator
+﻿using System.Runtime.Intrinsics.X86;
+
+namespace Vector06cEmulator
 {
     public class Cpu8080
     {
@@ -16,14 +18,18 @@
             this.memory = memory;
         }
 
-        private const int MAX_STEPS = 1000000; // защита от бесконечных циклов
+        private const int MAX_STEPS = 100; // защита от бесконечных циклов
         private int stepCounter = 0;
 
         public void Step()
         {
+            if (Halted) return;
+            Console.WriteLine($"Step {stepCounter}: PC={PC:X4}");
+
             if (stepCounter++ > MAX_STEPS)
             {
-                throw new Exception("Maximum steps exceeded. Possible infinite loop.");
+                Console.WriteLine($"Maximum steps exceeded at PC={PC:X4}. Possible infinite loop.");
+                Console.ReadLine();
             }
 
             ushort oldPC = PC;
@@ -31,25 +37,59 @@
 
             Console.WriteLine($"PC={oldPC:X4} OPCODE={opcode:X2}");
 
-            // Сразу проверяем HLT
-            if (opcode == 0x76) // HLT
+            switch (opcode)
             {
-                Console.WriteLine("HLT encountered. Stopping CPU.");
-                throw new Exception("CPU halted (HLT)");
+                case 0x76: // HLT
+                    Halted = true;
+                    Console.WriteLine("CPU halted.");
+                    return;
+
+                case 0x3E: // MVI A, byte
+                    A = memory.Read(PC++);
+                    return;
+
+                case 0x32: // STA addr
+                    {
+                        ushort addr = memory.Read(PC++);
+                        addr |= (ushort)(memory.Read(PC++) << 8);
+                        memory.Write(addr, A);
+                        return;
+                    }
+
+                case 0x33: // INX SP
+                    SP++;
+                    return;
+
+                case 0x3B: // DCX SP
+                    SP--;
+                    return;
+
+                case 0x20: // RIM
+                    A = 0x00;
+                    return;
+
+                case 0x34: // INR M
+                    {
+                        ushort addr = GetHL();
+                        byte val = memory.Read(addr);
+                        val++;
+                        memory.Write(addr, val);
+                        return;
+                    }
+
+                // MOV (0x40-0x7F)
+                default:
+                    if ((opcode & 0xC0) == 0x40)
+                    {
+                        int dst = (opcode >> 3) & 7;
+                        int src = opcode & 7;
+                        SetReg(dst, GetReg(src));
+                        return;
+                    }
+
+                    Console.WriteLine($"Warning: Opcode {opcode:X2} not implemented at PC={oldPC:X4}");
+                    return;
             }
-
-            // Блок MOV (0x40-0x7F)
-            if ((opcode & 0xC0) == 0x40)
-            {
-                int dst = (opcode >> 3) & 7;
-                int src = opcode & 7;
-
-                byte value = GetReg(src);
-                SetReg(dst, value);
-                return;
-            }
-
-            Execute(opcode, oldPC);
         }
 
         byte GetReg(int code)
@@ -108,8 +148,8 @@
         {
             switch (opcode)
             {
-                case 0x00: // NOP
-                           // ничего не делаем, просто шаг вперед
+                case 0x00: // HALT / NOP
+                    Console.WriteLine("End of program");
                     break;
 
                 case 0x3E: A = memory.Read(PC++); break; // MVI A, byte
@@ -616,6 +656,7 @@
 
                 default:
                     Console.WriteLine($"Warning: Opcode {opcode:X2} not implemented at PC={oldPC:X4}");
+                    PC++;
                     break;
             }
         }

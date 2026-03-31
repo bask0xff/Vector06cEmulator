@@ -22,17 +22,11 @@ namespace Vector06cEmulator
 
         public void Run()
         {
-            try
+            while (!Cpu.Halted)
             {
-                while (true)
-                {
-                    Cpu.Step();
-                }
+                Cpu.Step();
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Stopped: {ex.Message}");
-            }
+            Console.WriteLine("Emulator stopped.");
         }
     }
 }
