@@ -108,15 +108,12 @@
                     C = memory.Read(PC++);
                     break;
 
-                case 0x32: // STA addr
-                    ushort addr = ReadWord();
-                    memory.Write(addr, A);
-                    break;
-
                 case 0x3A: // LDA addr
-                    addr = ReadWord();
-                    A = memory.Read(addr);
-                    break;
+                    {
+                        ushort addr = ReadWord();
+                        A = memory.Read(addr);
+                        break;
+                    }
 
                 case 0xC3: // JMP addr
                     PC = ReadWord();
@@ -167,7 +164,10 @@
                 case 0x1C: E++; break;
                 case 0x24: H++; break;
                 case 0x2C: L++; break;
-                case 0x3C: A++; break;
+                case 0x3C: // INR A
+                    A++;
+                    SetFlagsZSP(A);
+                    break;
 
                 case 0x05: B--; break;
                 case 0x0D: C--; break;
@@ -187,6 +187,133 @@
                 case 0x86: A += memory.Read(GetHL()); break;
                 case 0x87: A += A; break;
 
+                case 0x32: // STA
+                    {
+                        ushort addr = ReadWord();
+                        memory.Write(addr, A);
+                        break;
+                    }
+
+                case 0x34: // INR M
+                    {
+                        ushort addr = GetHL();
+                        byte val = memory.Read(addr);
+                        val++;
+                        memory.Write(addr, val);
+                        break;
+                    }
+
+                case 0x20: // RIM
+                    A = 0x00; // все прерывания "выключены"
+                    break;
+
+                //PUSH / POP инструкции
+                case 0xC5: // PUSH B
+                    Push(GetBC());
+                    break;
+
+                case 0xD5: // PUSH D
+                    Push(GetDE());
+                    break;
+
+                case 0xE5: // PUSH H
+                    Push(GetHL());
+                    break;
+
+                case 0xF5: // PUSH PSW (A + flags)
+                    Push((ushort)((A << 8) | GetFlags()));
+                    break;
+
+                case 0xC1: // POP B
+                    SetBC(Pop());
+                    break;
+
+                case 0xD1: // POP D
+                    SetDE(Pop());
+                    break;
+
+                case 0xE1: // POP H
+                    SetHL(Pop());
+                    break;
+
+                case 0xF1: // POP PSW
+                    {
+                        ushort val = Pop();
+                        A = (byte)(val >> 8);
+                        SetFlags((byte)(val & 0xFF));
+                        break;
+                    }
+
+                // условные переходы
+                case 0xC2: // JNZ addr
+                    {
+                        ushort addr = ReadWord();
+                        if (!Z)
+                            PC = addr;
+                        break;
+                    }
+
+                case 0xCA: // JZ addr
+                    {
+                        ushort addr = ReadWord();
+                        if (Z)
+                            PC = addr;
+                        break;
+                    }
+
+                case 0xDA: // JC addr
+                    {
+                        ushort addr = ReadWord();
+                        if (CY)
+                            PC = addr;
+                        break;
+                    }
+
+                case 0xD2: // JNC addr
+                    {
+                        ushort addr = ReadWord();
+                        if (!CY)
+                            PC = addr;
+                        break;
+                    }
+
+                // CALL
+                case 0xC4: // CNZ
+                    {
+                        ushort addr = ReadWord();
+                        if (!Z)
+                        {
+                            Push(PC);
+                            PC = addr;
+                        }
+                        break;
+                    }
+
+                case 0xCC: // CZ
+                    {
+                        ushort addr = ReadWord();
+                        if (Z)
+                        {
+                            Push(PC);
+                            PC = addr;
+                        }
+                        break;
+                    }
+
+                // RET-условные
+                case 0xC0: // RNZ
+                    if (!Z) PC = Pop();
+                    break;
+
+                case 0xC8: // RZ
+                    if (Z) PC = Pop();
+                    break;
+
+
+
+                case 0x30: // SIM
+                           // пока игнорируем
+                    break;
 
                 case 0x76: // HLT
                     throw new Exception("HLT");
@@ -194,6 +321,61 @@
                 default:
                     throw new NotImplementedException($"Opcode {opcode:X2} not implemented");
             }
+        }
+
+        byte GetFlags()
+        {
+            byte f = 0;
+            if (Z) f |= 0x40;
+            if (S) f |= 0x80;
+            if (P) f |= 0x04;
+            if (CY) f |= 0x01;
+            if (AC) f |= 0x10;
+            return f;
+        }
+
+        void SetFlags(byte f)
+        {
+            Z = (f & 0x40) != 0;
+            S = (f & 0x80) != 0;
+            P = (f & 0x04) != 0;
+            CY = (f & 0x01) != 0;
+            AC = (f & 0x10) != 0;
+        }
+
+        void SetFlagsZSP(byte value)
+        {
+            Z = value == 0;
+            S = (value & 0x80) != 0;
+            P = CountBits(value) % 2 == 0;
+        }
+
+        int CountBits(byte b)
+        {
+            int count = 0;
+            for (int i = 0; i < 8; i++)
+                if ((b & (1 << i)) != 0) count++;
+            return count;
+        }
+
+        void Push(ushort value)
+        {
+            SP--;
+            memory.Write(SP, (byte)(value >> 8)); // high
+
+            SP--;
+            memory.Write(SP, (byte)(value & 0xFF)); // low
+        }
+
+        ushort Pop()
+        {
+            byte low = memory.Read(SP);
+            SP++;
+
+            byte high = memory.Read(SP);
+            SP++;
+
+            return (ushort)(low | (high << 8));
         }
 
         private ushort ReadWord()
