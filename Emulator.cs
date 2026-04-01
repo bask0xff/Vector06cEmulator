@@ -24,6 +24,8 @@ namespace Vector06cEmulator
             Keyboard = new Keyboard();
             IOBus = new IOBus(Video, Keyboard);
             Cpu = new Cpu8080(Memory, IOBus);
+
+            Memory.SetVideoController(Video);  // ← ОБЯЗАТЕЛЬНО!
         }
 
         public void LoadMonitors(string monitor0Path, string monitorFPath)

@@ -124,8 +124,6 @@ namespace Vector06cEmulator
 
         public void UpdateScreenInternal(Bitmap targetBitmap)
         {
-            //DebugLog($"[UPDATE] before: pal={currentPaletteIndex}, forcePal={forcePaletteIndex}");  // Если есть доступ к MainForm
-
             var bitmapData = targetBitmap.LockBits(
                 new Rectangle(0, 0, ScreenWidth, ScreenHeight),
                 ImageLockMode.WriteOnly,
@@ -137,27 +135,23 @@ namespace Vector06cEmulator
 
                 uint[] palette32 = new uint[16]
                 {
-                    0xFF000000,  // 0: чёрный
-                    0xFFFF0000,  // 1: синий (BGR)
-                    0xFF00FF00,  // 2: зелёный
-                    0xFFFF00FF,  // 3: циан
-                    0xFF0000FF,  // 4: красный
-                    0xFFFF00FF,  // 5: маджента
-                    0xFF00FFFF,  // 6: жёлтый
-                    0xFFFFFFFF,  // 7: белый
-                    0xFF808080,  // 8: тёмно-серый
-                    0xFF800000,  // 9: тёмно-синий
-                    0xFF008000,  // 10: тёмно-зелёный
-                    0xFF808000,  // 11: тёмно-циан
-                    0xFF000080,  // 12: тёмно-красный
-                    0xFF800080,  // 13: тёмно-маджента
-                    0xFF00FFFF,  // 14: жёлтый (ярко) ← ВАЖНО: BGR формат!
-                    0xFFC0C0C0   // 15: серый
+            0xFF000000,  // 0: чёрный
+            0xFFFF0000,  // 1: синий (BGR)
+            0xFF00FF00,  // 2: зелёный
+            0xFFFF00FF,  // 3: циан
+            0xFF0000FF,  // 4: красный
+            0xFFFF00FF,  // 5: маджента
+            0xFF00FFFF,  // 6: жёлтый
+            0xFFFFFFFF,  // 7: белый
+            0xFF808080,  // 8: тёмно-серый
+            0xFF800000,  // 9: тёмно-синий
+            0xFF008000,  // 10: тёмно-зелёный
+            0xFF808000,  // 11: тёмно-циан
+            0xFF000080,  // 12: тёмно-красный
+            0xFF800080,  // 13: тёмно-маджента
+            0xFF00FFFF,  // 14: жёлтый (ярко)
+            0xFFC0C0C0   // 15: серый
                 };
-
-                // ИСПРАВЛЕНИЕ: используй force если установлен, иначе текущий
-                int effectivePalette = forcePaletteIndex >= 0 ? forcePaletteIndex : currentPaletteIndex;
-                int effectiveBorder = forceBorderColor >= 0 ? forceBorderColor : (borderColor & 0x0F);
 
                 for (int y = 0; y < ScreenHeight; y++)
                 {
@@ -172,7 +166,7 @@ namespace Vector06cEmulator
                         byte pixelByte = (byteAddr < videoRam.Length) ? videoRam[byteAddr] : (byte)0;
                         bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
 
-                        int colorIndex = pixelOn ? effectivePalette : effectiveBorder;
+                        int colorIndex = pixelOn ? currentPaletteIndex : (borderColor & 0x0F);
                         uint color = palette32[colorIndex];
 
                         int pixelIndex = y * (bitmapData.Stride / 4) + x;

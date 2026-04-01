@@ -116,32 +116,29 @@ namespace Vector06cEmulator
 
         private void TestButton_Click(object? sender, EventArgs e)
         {
+            // Заполняем ВСЮ видеопамять (8192 байта)
             for (int y = 0; y < 256; y++)
             {
                 int lineAddr = y * 32;
                 for (int x = 0; x < 32; x++)
                 {
                     int byteAddr = lineAddr + x;
+                    // Полосы каждые 4 строки
                     byte pattern = ((y / 4) % 2 == 0) ? (byte)0xFF : (byte)0x00;
-                    emulator.Video.WriteVideoRam((ushort)byteAddr, pattern);
+                    emulator.Video.WriteVideoRam((ushort)(0x1800 + byteAddr), pattern);
                 }
             }
 
-            emulator.Video.SetPaletteColor(0x0E);  // жёлтый
-            emulator.Video.SetBorderColor(0x00);   // чёрный
-
-            // ДОБАВЬТЕ: принудительно Brothers перед отрисовкой
-            emulator.Video.ForcePalette(0x0E, 0x00);  // Новый метод
+            // Устанавливаем жёлтый (14) и чёрный фон (0)
+            emulator.Video.SetPaletteColor(14);
+            emulator.Video.SetBorderColor(0);
 
             emulator.Video.UpdateScreenInternal(displayBitmap);
-
             pictureBox.Invalidate();
 
             statusLabel.Text = "Тест: жёлтые полосы нарисованы!";
 
-            // ЗАМЕНИЛ Console.WriteLine НА DebugLog:
             DebugLog($"[ТЕСТ] pal={emulator.Video.GetCurrentPaletteIndex()}, VRAM={emulator.Video.CountNonZeroVideoRam()}");
-            DebugLog($"Первые 8 байт VRAM: {emulator.Video.PeekVideoRam(0):X2} {emulator.Video.PeekVideoRam(1):X2} {emulator.Video.PeekVideoRam(2):X2} {emulator.Video.PeekVideoRam(3):X2}");
         }
 
         private void UpdateBitmapPalette(Bitmap bitmap, VideoController video)
