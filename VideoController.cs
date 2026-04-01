@@ -72,6 +72,25 @@ namespace Vector06cEmulator
             scrollOffset = value;
         }
 
+        // ПУБЛИЧНЫЕ МЕТОДЫ ДЛЯ ОТЛАДКИ
+        public int GetCurrentPaletteIndex() => currentPaletteIndex;
+        public byte GetBorderColor() => borderColor;
+
+        public int CountNonZeroVideoRam()
+        {
+            int count = 0;
+            for (int i = 0; i < videoRam.Length; i++)
+                if (videoRam[i] != 0) count++;
+            return count;
+        }
+
+        public byte PeekVideoRam(int offset)
+        {
+            if (offset >= 0 && offset < videoRam.Length)
+                return videoRam[offset];
+            return 0;
+        }
+
         public byte ReadVideoRam(ushort addr)
         {
             if (addr >= 0x1800 && addr <= 0x37FF)
@@ -85,9 +104,93 @@ namespace Vector06cEmulator
                 videoRam[addr - 0x1800] = value;
         }
 
+        // Обновление экрана для общего использования
         public void UpdateScreen()
         {
-            var bitmapData = bitmap.LockBits(
+            UpdateScreenInternal(bitmap);
+        }
+
+        // ПУБЛИЧНЫЙ метод для обновления внешнего Bitmap
+        // В VideoController.cs
+        public void UpdateScreenInternal(Bitmap targetBitmap)
+        {
+            var bitmapData = targetBitmap.LockBits(
+                new Rectangle(0, 0, ScreenWidth, ScreenHeight),
+                ImageLockMode.WriteOnly,
+                PixelFormat.Format32bppArgb);  // 32 бита вместо 8!
+
+            unsafe
+            {
+                uint* ptr = (uint*)bitmapData.Scan0.ToPointer();  // uint* вместо byte*
+
+                // Палитра как массив 32-битных цветов (ARGB)
+                uint[] palette32 = new uint[16]
+                {
+            0xFF000000,  // 0: чёрный
+            0xFF0000FF,  // 1: синий
+            0xFF00FF00,  // 2: зелёный
+            0xFF00FFFF,  // 3: циан
+            0xFFFF0000,  // 4: красный
+            0xFFFF00FF,  // 5: маджента
+            0xFFFFFF00,  // 6: жёлтый
+            0xFFFFFFFF,  // 7: белый
+            0xFF808080,  // 8: тёмно-серый
+            0xFF000080,  // 9: тёмно-синий
+            0xFF008000,  // 10: тёмно-зелёный
+            0xFF008080,  // 11: тёмно-циан
+            0xFF800000,  // 12: тёмно-красный
+            0xFF800080,  // 13: тёмно-маджента
+            0xFFFFFF00,  // 14: жёлтый (ярко)
+            0xFFC0C0C0   // 15: серый
+                };
+
+                for (int y = 0; y < ScreenHeight; y++)
+                {
+                    int videoLine = (y + scrollOffset) % 256;
+                    int videoAddr = videoLine * 32;
+
+                    for (int x = 0; x < ScreenWidth; x++)
+                    {
+                        int byteAddr = videoAddr + (x / 8);
+                        int bitPos = 7 - (x % 8);
+
+                        byte pixelByte = (byteAddr < videoRam.Length) ? videoRam[byteAddr] : (byte)0;
+                        bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
+
+                        int colorIndex = pixelOn ? currentPaletteIndex : (borderColor & 0x0F);
+                        uint color = palette32[colorIndex];
+
+                        int pixelIndex = y * (bitmapData.Stride / 4) + x;  //_stride в uint, а не в byte!
+                        ptr[pixelIndex] = color;
+                    }
+                }
+            }
+
+            targetBitmap.UnlockBits(bitmapData);
+        }
+
+        public Bitmap GetBitmap() => bitmap;
+
+        public void SaveScreenshot(string filename)
+        {
+            var rgbBitmap = new Bitmap(ScreenWidth, ScreenHeight, PixelFormat.Format24bppRgb);
+            using (var g = Graphics.FromImage(rgbBitmap))
+            {
+                g.DrawImage(bitmap, 0, 0);
+            }
+            rgbBitmap.Save(filename, System.Drawing.Imaging.ImageFormat.Png);
+            Console.WriteLine($"Скриншот: {filename}");
+        }
+
+        public string GetDebugInfo()
+        {
+            return $"pal={currentPaletteIndex}, border={borderColor}, scroll={scrollOffset}, VRAM_nonzero={CountNonZeroVideoRam()}";
+        }
+
+        // В VideoController.cs
+        /*public void UpdateScreenInternal(Bitmap targetBitmap)  // <-- Должно быть public
+        {
+            var bitmapData = targetBitmap.LockBits(
                 new Rectangle(0, 0, ScreenWidth, ScreenHeight),
                 ImageLockMode.WriteOnly,
                 PixelFormat.Format8bppIndexed);
@@ -117,20 +220,7 @@ namespace Vector06cEmulator
                 }
             }
 
-            bitmap.UnlockBits(bitmapData);
-        }
-
-        public Bitmap GetBitmap() => bitmap;
-
-        public void SaveScreenshot(string filename)
-        {
-            var rgbBitmap = new Bitmap(ScreenWidth, ScreenHeight, PixelFormat.Format24bppRgb);
-            using (var g = Graphics.FromImage(rgbBitmap))
-            {
-                g.DrawImage(bitmap, 0, 0);
-            }
-            rgbBitmap.Save(filename, System.Drawing.Imaging.ImageFormat.Png);
-            Console.WriteLine($"Screenshot: {filename}");
-        }
+            targetBitmap.UnlockBits(bitmapData);
+        }*/
     }
 }
