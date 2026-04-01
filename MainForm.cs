@@ -87,6 +87,36 @@ namespace Vector06cEmulator
                 ForeColor = Color.FromArgb(0, 255, 0)  // Зелёный как в терминале
             };
 
+            Button loadRomButton = new Button
+            {
+                Text = "Загрузить ROM",
+                Location = new Point(360, 410),
+                Size = new Size(120, 30)
+            };
+            loadRomButton.Click += LoadRealRomButton_Click;
+
+            Button resetButton = new Button
+            {
+                Text = "Сброс",
+                Location = new Point(490, 410),
+                Size = new Size(80, 30)
+            };
+            resetButton.Click += ResetButton_Click;
+
+            Timer statusTimer = new Timer();
+            statusTimer.Interval = 100; // Обновление каждые 100 мс
+            statusTimer.Tick += (s, e) =>
+            {
+                if (isRunning)
+                {
+                    statusLabel.Text = $"Статус: Запущен | PC={emulator.Cpu.PC:X4} | A={emulator.Cpu.A:X2} | HALT={emulator.Cpu.Halted}";
+                }
+            };
+            statusTimer.Start();
+
+            Controls.Add(loadRomButton);
+            Controls.Add(resetButton);
+
             Controls.Add(debugTextBox);
             Controls.Add(testButton);
             Controls.Add(pictureBox);
@@ -101,6 +131,108 @@ namespace Vector06cEmulator
             screenTimer = new Timer();
             screenTimer.Interval = 20; // 50 Гц
             screenTimer.Tick += ScreenTimer_Tick;
+        }
+
+
+        private void ResetButton_Click(object? sender, EventArgs e)
+        {
+            // Останавливаем эмулятор
+            if (isRunning)
+            {
+                screenTimer.Stop();
+                isRunning = false;
+            }
+
+            // Сбрасываем CPU
+            emulator.Cpu.PC = 0x0000;
+            emulator.Cpu.SP = 0xC000;
+            emulator.Cpu.A = 0;
+            emulator.Cpu.B = 0;
+            emulator.Cpu.C = 0;
+            emulator.Cpu.D = 0;
+            emulator.Cpu.E = 0;
+            emulator.Cpu.H = 0;
+            emulator.Cpu.L = 0;
+            emulator.Cpu.Halted = false;
+            emulator.Cpu.IFF = false;
+
+            // Сбрасываем видеоконтроллер
+            emulator.IOBus.Out(0x00, 0x00);
+            emulator.IOBus.Out(0x01, 0x01);
+            emulator.IOBus.Out(0x10, 0x00);
+
+            // Очищаем видеопамять
+            for (int i = 0x1800; i <= 0x37FF; i++)
+            {
+                emulator.Memory.Write((ushort)i, 0);
+            }
+
+            // Обновляем экран
+            emulator.Video.UpdateScreen();
+            pictureBox.Image?.Dispose();
+            pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
+
+            statusLabel.Text = "Статус: Сброшен";
+            runButton.Enabled = true;
+            pauseButton.Enabled = false;
+
+            DebugLog("Эмулятор сброшен");
+        }
+
+        private void CreateAnimationRom()
+        {
+            // Создаем ROM с простой анимацией
+            byte[] romData = new byte[]
+            {
+                // Инициализация
+                0x3E, 0x00, 0xD3, 0x00,  // MVI A,0 / OUT 0 - черный фон
+                0x3E, 0x01, 0xD3, 0x01,  // MVI A,1 / OUT 1 - голубые пиксели
+                0x3E, 0x00, 0xD3, 0x10,  // MVI A,0 / OUT 16 - скроллинг 0
+        
+                // Основной цикл
+                0x21, 0x00, 0x18,        // Start: LXI H,1800h
+                0x06, 0x20,              // MVI B,32
+                0x3E, 0xFF,              // MVI A,FF
+        
+                0x77,                    // FillLoop: MOV M,A
+                0x23,                    // INX H
+                0x05,                    // DCR B
+                0xC2, 0x08, 0x01,        // JNZ FillLoop
+        
+                // Задержка
+                0x0E, 0xFF,              // Delay1: MVI C,FF
+                0x0D,                    // Delay2: DCR C
+                0xC2, 0x0D, 0x01,        // JNZ Delay2
+                0x05,                    // DCR B
+                0xC2, 0x0C, 0x01,        // JNZ Delay1
+        
+                // Очистка экрана
+                0x21, 0x00, 0x18,        // LXI H,1800h
+                0x06, 0x20,              // MVI B,32
+                0x3E, 0x00,              // MVI A,0
+        
+                0x77,                    // ClearLoop: MOV M,A
+                0x23,                    // INX H
+                0x05,                    // DCR B
+                0xC2, 0x1A, 0x01,        // JNZ ClearLoop
+        
+                // Задержка
+                0x0E, 0xFF,              // Delay3: MVI C,FF
+                0x0D,                    // Delay4: DCR C
+                0xC2, 0x22, 0x01,        // JNZ Delay4
+                0x05,                    // DCR B
+                0xC2, 0x21, 0x01,        // JNZ Delay3
+        
+                // Меняем цвет
+                0x3E, 0x02, 0xD3, 0x01,  // MVI A,2 / OUT 1 - зеленые пиксели
+                0x0E, 0xFF,              // MVI C,FF (задержка)
+        
+                0xC3, 0x04, 0x01         // JMP Start
+            };
+
+            string path = Path.Combine(GetProjectPath(), "animation.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"[ROM] animation.rom создан ({romData.Length} байт)");
         }
 
         private void CreateTestGraphicsRom0()   // ← обнови эту функцию
@@ -203,6 +335,50 @@ namespace Vector06cEmulator
             this.KeyPreview = true;
             this.KeyDown += MainForm_KeyDown;
             this.KeyUp += MainForm_KeyUp;
+        }
+
+        // Добавьте эти методы в класс MainForm
+        private void LoadRealRomButton_Click(object? sender, EventArgs e)
+        {
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Filter = "ROM files (*.rom;*.bin)|*.rom;*.bin|All files (*.*)|*.*";
+                openFileDialog.Title = "Выберите ROM файл для загрузки";
+
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        byte[] romData = File.ReadAllBytes(openFileDialog.FileName);
+
+                        // Для Вектор-06Ц программы обычно загружаются по адресу 0x0100
+                        ushort loadAddress = 0x0100;
+
+                        // Если файл имеет заголовок (например, .com или .exe), можно определить адрес
+                        if (openFileDialog.FileName.EndsWith(".com"))
+                            loadAddress = 0x0100;
+                        else if (openFileDialog.FileName.EndsWith(".exe"))
+                            loadAddress = 0x0100; // Для простоты пока так
+
+                        emulator.Memory.Load(romData, loadAddress);
+
+                        // Устанавливаем PC на точку входа
+                        emulator.Cpu.PC = loadAddress;
+                        emulator.Cpu.SP = 0xC000; // Стек в верхней части памяти
+
+                        DebugLog($"Загружен ROM: {Path.GetFileName(openFileDialog.FileName)}");
+                        DebugLog($"Размер: {romData.Length} байт, адрес: 0x{loadAddress:X4}");
+                        DebugLog($"PC установлен на 0x{emulator.Cpu.PC:X4}, SP=0x{emulator.Cpu.SP:X4}");
+
+                        statusLabel.Text = $"Загружен: {Path.GetFileName(openFileDialog.FileName)}";
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog($"Ошибка загрузки ROM: {ex.Message}");
+                        statusLabel.Text = "Ошибка загрузки ROM";
+                    }
+                }
+            }
         }
 
         private void MainForm_KeyDown(object? sender, KeyEventArgs e)

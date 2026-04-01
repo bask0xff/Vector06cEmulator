@@ -9,8 +9,8 @@ namespace Vector06cEmulator
         public bool Z, S, P, CY, AC;
 
         private Memory memory;
-        public bool Halted { get; private set; } = false;
-        public bool IFF { get; private set; } = false;
+        public bool Halted { get; set; } = false; 
+        public bool IFF { get; set; } = false;
 
         private IOBus ioBus;
 
