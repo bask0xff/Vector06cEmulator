@@ -129,6 +129,8 @@ namespace Vector06cEmulator
 
         public void UpdateScreenInternal(Bitmap targetBitmap)
         {
+            if (targetBitmap == null) return;
+
             var bitmapData = targetBitmap.LockBits(
                 new Rectangle(0, 0, ScreenWidth, ScreenHeight),
                 ImageLockMode.WriteOnly,
@@ -137,31 +139,28 @@ namespace Vector06cEmulator
             unsafe
             {
                 uint* ptr = (uint*)bitmapData.Scan0.ToPointer();
-                uint[] palette32 = BuildPalette32();
 
-                int effectivePalette = forcePaletteIndex >= 0 ? forcePaletteIndex : currentPaletteIndex;
-                int effectiveBorder = forceBorderColor >= 0 ? forceBorderColor : borderColor;
+                uint[] palette32 = BuildPalette32();   // твоя функция с 16 цветами
+
+                int effPalette = forcePaletteIndex >= 0 ? forcePaletteIndex : currentPaletteIndex;
+                int effBorder = forceBorderColor >= 0 ? forceBorderColor : borderColor;
 
                 for (int y = 0; y < ScreenHeight; y++)
                 {
                     int videoLine = (y + scrollOffset) % 256;
-                    int lineBase = videoLine * 32;
+                    ushort lineStart = (ushort)(0x1800 + videoLine * 32);   // начало строки
 
                     for (int x = 0; x < ScreenWidth; x++)
                     {
-                        int byteOffset = lineBase + (x / 8);
-                        ushort addr = (ushort)(0x1800 + byteOffset);
+                        ushort addr = (ushort)(lineStart + (x / 8));
 
-                        byte pixelByte = _memory.Read(addr);        // ← теперь из общей памяти!
+                        byte pixelByte = _memory.Read(addr);
 
-                        int bitPos = 7 - (x % 8);
+                        int bitPos = 7 - (x % 8);                 // бит 7 = левый пиксель
                         bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
 
-                        int colorIndex = pixelOn ? effectivePalette : effectiveBorder;
-                        uint color = palette32[colorIndex];
-
-                        int pixelIndex = y * (bitmapData.Stride / 4) + x;
-                        ptr[pixelIndex] = color;
+                        int colorIdx = pixelOn ? effPalette : effBorder;
+                        ptr[y * (bitmapData.Stride / 4) + x] = palette32[colorIdx];
                     }
                 }
             }
