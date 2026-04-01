@@ -10,6 +10,7 @@ namespace Vector06cEmulator
 
         private Memory memory;
         public bool Halted { get; private set; } = false;
+        public bool IFF { get; private set; } = false;
 
         private IOBus ioBus;
 
@@ -26,9 +27,19 @@ namespace Vector06cEmulator
             ushort oldPC = PC;
             byte opcode = memory.Read(PC++);
 
-            Console.WriteLine($"PC={oldPC:X4} OPCODE={opcode:X2}");
+            //Console.WriteLine($"PC={oldPC:X4} OPCODE={opcode:X2}");
 
             Execute(opcode, oldPC);
+        }
+
+        // Вызвать аппаратное прерывание (RST 7 = вектор 0x0038)
+        // Вектор-06Ц использует RST 7 от таймера
+        public void Interrupt()
+        {
+            if (!IFF || Halted) return;
+            IFF = false;
+            Push(PC);
+            PC = 0x0038;
         }
 
         private void Execute(byte opcode, ushort oldPC)
@@ -367,8 +378,8 @@ namespace Vector06cEmulator
                     }
 
                 // ── EI / DI / RIM / SIM / NOP ────────────────────────
-                case 0xFB: break; // EI  — прерывания не реализованы
-                case 0xF3: break; // DI
+                case 0xFB: IFF = true; break;  // EI
+                case 0xF3: IFF = false; break;  // DI
                 case 0x20: break; // RIM (8085) — игнорируем
                 case 0x30: break; // SIM (8085) — игнорируем
 

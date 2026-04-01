@@ -5,22 +5,27 @@ namespace Vector06cEmulator
 {
     public class Emulator
     {
-        public readonly Memory          Memory;
+        public readonly Memory Memory;
         public readonly VideoController Video;
-        public readonly Keyboard        Keyboard;
-        public readonly IOBus           IOBus;
-        public readonly Cpu8080         Cpu;
+        public readonly Keyboard Keyboard;
+        public readonly IOBus IOBus;
+        public readonly Cpu8080 Cpu;
+
+        // Вектор-06Ц: тактовая частота ~3 МГц, прерывание 50 Гц (PAL)
+        // 3_000_000 / 50 = 60_000 тактов между прерываниями
+        // Пока у нас нет подсчёта тактов — считаем инструкции (приближение)
+        private const int CyclesPerFrame = 60_000;
+        private int cycleCounter = 0;
 
         public Emulator()
         {
-            Memory   = new Memory();
-            Video    = new VideoController();
+            Memory = new Memory();
+            Video = new VideoController();
             Keyboard = new Keyboard();
-            IOBus    = new IOBus(Video, Keyboard);
-            Cpu      = new Cpu8080(Memory, IOBus);
+            IOBus = new IOBus(Video, Keyboard);
+            Cpu = new Cpu8080(Memory, IOBus);
         }
 
-        // Загружаем оба монитора — вызывать ДО LoadRom
         public void LoadMonitors(string monitor0Path, string monitorFPath)
         {
             if (File.Exists(monitor0Path))
@@ -29,10 +34,7 @@ namespace Vector06cEmulator
                 Memory.Load(data, 0x0000);
                 Console.WriteLine($"Monitor0 загружен: {monitor0Path} ({data.Length} байт) -> 0x0000");
             }
-            else
-            {
-                Console.WriteLine($"ВНИМАНИЕ: {monitor0Path} не найден");
-            }
+            else Console.WriteLine($"ВНИМАНИЕ: {monitor0Path} не найден");
 
             if (File.Exists(monitorFPath))
             {
@@ -40,14 +42,9 @@ namespace Vector06cEmulator
                 Memory.Load(data, 0xF800);
                 Console.WriteLine($"MonitorF загружен: {monitorFPath} ({data.Length} байт) -> 0xF800");
             }
-            else
-            {
-                Console.WriteLine($"ВНИМАНИЕ: {monitorFPath} не найден");
-            }
+            else Console.WriteLine($"ВНИМАНИЕ: {monitorFPath} не найден");
         }
 
-        // Загружаем ROM программы — после LoadMonitors
-        // Вектор-06Ц загружает программы в RAM начиная с 0x0100
         public void LoadRom(string path, ushort address = 0x0100)
         {
             var data = File.ReadAllBytes(path);
@@ -55,33 +52,39 @@ namespace Vector06cEmulator
             Console.WriteLine($"ROM загружен: {path} ({data.Length} байт) -> 0x{address:X4}");
         }
 
-        // Старт с адреса монитора — нормальный старт Вектор-06Ц
         public void Start()
         {
             Cpu.PC = 0x0000;
-            Cpu.SP = 0xC000;  // Типичное начальное значение стека
+            Cpu.SP = 0xC000;
+            cycleCounter = 0;
             Console.WriteLine("CPU запущен с 0x0000");
         }
 
-        // Выполнить N шагов
-        public void RunCycles(int cycles)
+        // Один шаг CPU + обработка прерывания если пора
+        public void Step()
         {
-            for (int i = 0; i < cycles && !Cpu.Halted; i++)
-                Cpu.Step();
+            Cpu.Step();
+            cycleCounter++;
+            //Console.WriteLine($"[STEP] counter={cycleCounter}");  // временно
+            if (cycleCounter >= CyclesPerFrame)
+            {
+                cycleCounter = 0;
+                Cpu.Interrupt();
+            }
         }
 
-        // Полный запуск до HLT — для отладки
-        public void Run(int maxSteps = 500_000)
+        // Запуск на maxSteps инструкций — для отладки
+        public void Run(int maxSteps = 2_000_000)
         {
             int steps = 0;
             while (!Cpu.Halted && steps < maxSteps)
             {
-                Cpu.Step();
+                Step();
                 steps++;
             }
 
             if (steps >= maxSteps)
-                Console.WriteLine($"\nОстановлен по лимиту шагов ({maxSteps}), PC={Cpu.PC:X4}");
+                Console.WriteLine($"\nОстановлен по лимиту ({maxSteps} шагов), PC={Cpu.PC:X4}");
 
             PrintState();
         }
@@ -91,16 +94,11 @@ namespace Vector06cEmulator
             Console.WriteLine("\n═══════════════════════════════");
             Console.WriteLine("        EXECUTION RESULTS      ");
             Console.WriteLine("═══════════════════════════════");
-            Console.WriteLine("REGISTERS:");
-            Console.WriteLine($"  A  = {Cpu.A:X2} ({Cpu.A})");
-            Console.WriteLine($"  B  = {Cpu.B:X2}  C  = {Cpu.C:X2}");
-            Console.WriteLine($"  D  = {Cpu.D:X2}  E  = {Cpu.E:X2}");
-            Console.WriteLine($"  H  = {Cpu.H:X2}  L  = {Cpu.L:X2}");
-            Console.WriteLine($"  SP = {Cpu.SP:X4}");
-            Console.WriteLine($"  PC = {Cpu.PC:X4}");
-            Console.WriteLine("───────────────────────────────");
-            Console.WriteLine("FLAGS:");
-            Console.WriteLine($"  Z={Cpu.Z}  S={Cpu.S}  CY={Cpu.CY}  P={Cpu.P}  AC={Cpu.AC}");
+            Console.WriteLine($"  A={Cpu.A:X2}  B={Cpu.B:X2}  C={Cpu.C:X2}");
+            Console.WriteLine($"  D={Cpu.D:X2}  E={Cpu.E:X2}");
+            Console.WriteLine($"  H={Cpu.H:X2}  L={Cpu.L:X2}");
+            Console.WriteLine($"  SP={Cpu.SP:X4}  PC={Cpu.PC:X4}");
+            Console.WriteLine($"  Z={Cpu.Z} S={Cpu.S} CY={Cpu.CY} P={Cpu.P} AC={Cpu.AC}");
             Console.WriteLine("═══════════════════════════════");
         }
     }

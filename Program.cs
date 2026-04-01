@@ -12,7 +12,7 @@ namespace Vector06cEmulator
             emu.LoadMonitors("Monitor0.rom", "MonitorF.rom");
             emu.LoadRom("binland.rom");
             emu.Start();
-            emu.Run(maxSteps: 500_000);
+            emu.Run(maxSteps: 10_000_000);
 
             Console.ReadLine();
         }
