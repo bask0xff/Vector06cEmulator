@@ -103,7 +103,7 @@ namespace Vector06cEmulator
             screenTimer.Tick += ScreenTimer_Tick;
         }
 
-        private void CreateTestGraphicsRom()   // ← обнови эту функцию
+        private void CreateTestGraphicsRom0()   // ← обнови эту функцию
         {
             byte[] romData = new byte[]
             {
@@ -167,32 +167,52 @@ namespace Vector06cEmulator
 
         private void TestButton_Click(object? sender, EventArgs e)
         {
+            // Заполняем видеопамять тестовым паттерном
             for (int y = 0; y < 256; y++)
             {
-                int lineAddr = y * 32;
                 for (int x = 0; x < 32; x++)
                 {
-                    int byteAddr = lineAddr + x;
-                    byte pattern = ((y / 4) % 2 == 0) ? (byte)0xFF : (byte)0x00;
-                    emulator.Video.WriteVideoRam((ushort)byteAddr, pattern);
+                    ushort addr = (ushort)(0x1800 + y * 32 + x);
+                    byte pattern = (byte)(((y / 8) % 2 == 0) ? 0xFF : 0x00);
+                    emulator.Memory.Write(addr, pattern);
                 }
             }
 
-            emulator.Video.SetPaletteColor(0x01); // голубой (Color.Blue)
-            emulator.Video.SetBorderColor(0x00);   // чёрный
+            // Устанавливаем цвета через IOBus (правильный способ)
+            emulator.IOBus.Out(0x00, 0x00); // Черный фон
+            emulator.IOBus.Out(0x01, 0x06); // Желтые пиксели
 
-            // ДОБАВЬТЕ: принудительно Brothers перед отрисовкой
-            emulator.Video.ForcePalette(0x0E, 0x00);  // Новый метод
+            // Обновляем экран
+            emulator.Video.UpdateScreen();
+            pictureBox.Image?.Dispose();
+            pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
 
-            emulator.Video.UpdateScreenInternal(displayBitmap);
+            statusLabel.Text = "Тест: тестовый паттерн отображен!";
 
-            pictureBox.Invalidate();
+            DebugLog($"Видеопамять заполнена, фон=0x00, цвет=0x06");
+            DebugLog($"Первые 8 байт VRAM: " +
+                $"{emulator.Memory.Read(0x1800):X2} " +
+                $"{emulator.Memory.Read(0x1801):X2} " +
+                $"{emulator.Memory.Read(0x1802):X2} " +
+                $"{emulator.Memory.Read(0x1803):X2}");
+        }
 
-            statusLabel.Text = "Тест: жёлтые полосы нарисованы!";
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            this.KeyPreview = true;
+            this.KeyDown += MainForm_KeyDown;
+            this.KeyUp += MainForm_KeyUp;
+        }
 
-            // ЗАМЕНИЛ Console.WriteLine НА DebugLog:
-            DebugLog($"[ТЕСТ] pal={emulator.Video.GetCurrentPaletteIndex()}, VRAM={emulator.Video.CountNonZeroVideoRam()}");
-            DebugLog($"Первые 8 байт VRAM: {emulator.Video.PeekVideoRam(0):X2} {emulator.Video.PeekVideoRam(1):X2} {emulator.Video.PeekVideoRam(2):X2} {emulator.Video.PeekVideoRam(3):X2}");
+        private void MainForm_KeyDown(object? sender, KeyEventArgs e)
+        {
+            emulator.Keyboard.KeyDown(e.KeyCode);
+        }
+
+        private void MainForm_KeyUp(object? sender, KeyEventArgs e)
+        {
+            emulator.Keyboard.KeyUp(e.KeyCode);
         }
 
         private void UpdateBitmapPalette(Bitmap bitmap, VideoController video)
@@ -339,6 +359,61 @@ namespace Vector06cEmulator
                 0x15, 0xC2, 0x15, 0x01,  // DCR D / JNZ LineLoop
 
                 0xC3, 0x2F, 0x01         // JMP $ (бесконечный цикл)
+            };
+
+            string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"[ROM] test_graphics.rom создан ({romData.Length} байт) → {path}");
+        }
+
+        private void CreateTestGraphicsRom()
+        {
+            // Простой тестовый ROM - рисует полосы и шахматку
+            byte[] romData = new byte[]
+            {
+                // Инициализация видеорежима
+                0x3E, 0x00, 0xD3, 0x00,  // MVI A,00 / OUT 00  - черный фон
+                0x3E, 0x01, 0xD3, 0x01,  // MVI A,01 / OUT 01  - голубые пиксели
+                0x3E, 0x00, 0xD3, 0x10,  // MVI A,00 / OUT 10  - скроллинг 0
+        
+                // Очистка видеопамяти
+                0x21, 0x00, 0x18,        // LXI H,1800h - начало видеопамяти
+                0x01, 0x00, 0x20,        // LXI B,2000h - 8192 байта (32*256)
+                0x3E, 0x00,              // MVI A,00
+                0x77,                    // FillLoop: MOV M,A
+                0x23,                    // INX H
+                0x0B,                    // DCX B
+                0x78, 0xB1,              // MOV A,B / ORA C
+                0xC2, 0x06, 0x01,        // JNZ FillLoop
+        
+                // Рисуем горизонтальные полосы
+                0x21, 0x00, 0x18,        // LXI H,1800h
+                0x06, 0x10,              // MVI B,16 (16 полос)
+        
+                0x3E, 0xFF,              // StripeLoop: MVI A,FF
+                0x0E, 0x10,              // MVI C,16 (16 строк на полосу)
+        
+                0x16, 0x20,              // LineLoop: MVI D,32 (32 байта на строку)
+                0x77,                    // ByteLoop: MOV M,A
+                0x23,                    // INX H
+                0x15,                    // DCR D
+                0xC2, 0x14, 0x01,        // JNZ ByteLoop
+        
+                0x0D,                    // DCR C
+                0xC2, 0x12, 0x01,        // JNZ LineLoop
+        
+                0x3E, 0x00,              // MVI A,00
+                0x16, 0x20,              // MVI D,32
+                0x77,                    // BlackLoop: MOV M,A
+                0x23,                    // INX H
+                0x15,                    // DCR D
+                0xC2, 0x1D, 0x01,        // JNZ BlackLoop
+        
+                0x05,                    // DCR B
+                0xC2, 0x10, 0x01,        // JNZ StripeLoop
+        
+                // Бесконечный цикл
+                0xC3, 0x25, 0x01         // JMP $
             };
 
             string path = Path.Combine(GetProjectPath(), "test_graphics.rom");

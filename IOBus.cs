@@ -1,51 +1,42 @@
+using System;
+
 namespace Vector06cEmulator
 {
-    // Шина ввода-вывода Вектор-06Ц
-    // Маршрутизирует IN/OUT команды процессора к нужным устройствам
     public class IOBus
     {
-        private readonly VideoController video;
-        private readonly Keyboard keyboard;
+        private readonly VideoController _video;
+        private readonly Keyboard _keyboard;
 
         public IOBus(VideoController video, Keyboard keyboard)
         {
-            this.video = video;
-            this.keyboard = keyboard;
+            _video = video ?? throw new ArgumentNullException(nameof(video));
+            _keyboard = keyboard ?? throw new ArgumentNullException(nameof(keyboard));
         }
 
         public byte In(byte port)
         {
-            switch (port)
+            // В Вектор-06Ц порты:
+            // 0x00-0x0F - видеорегистры
+            // 0x10-0x1F - клавиатура и системные регистры
+            if (port >= 0x00 && port <= 0x0F)
             {
-                case 0x02: return keyboard.ReadColumn();
-                case 0x07: return 0xFF;
-                case 0x12: return 0x00;
-                case 0xA0: return keyboard.ReadPortA();
-                case 0xA1: return keyboard.ReadPortB();
-                case 0xA2: return keyboard.ReadPortC();
-                default: return 0xFF;  // тихая заглушка
+                return _video.InPort(port);
             }
+            else if (port >= 0x10 && port <= 0x1F)
+            {
+                return _keyboard.ReadPort(port);
+            }
+
+            return 0xFF; // Неподключенные порты возвращают 0xFF
         }
 
         public void Out(byte port, byte value)
         {
-            switch (port)
+            if (port >= 0x00 && port <= 0x0F)
             {
-                case 0x00: video.SetBorderColor(value); break;   // Цвет рамки
-                case 0x01: video.SetPaletteColor(value); break;  // Цвет палитры
-                case 0x02: keyboard.SelectRow(value); break;     // Клавиатура: выбираем строку матрицы
-                case 0x03: /* звук — позже */ break;
-                case 0x08: /* сброс — позже */ break;
-                case 0x0C: /* управление памятью — позже */ break;
-                case 0x0B: /* управление памятью — позже */ break;
-                case 0x10: video.SetScrollOffset(value); break;  // Прокрутка экрана
-                case 0x12: /* таймер — позже */ break;
-                case 0x21: /* расширенный регистр — позже */ break;
-                case 0x3A: /* расширенный регистр — позже */ break;
-                default:
-                    //Console.WriteLine($"[IOBus] OUT {port:X2} = {value:X2} (не реализован)");
-                    break;
+                _video.OutPort(port, value);
             }
+            // Другие порты вывода пока игнорируем
         }
     }
 }

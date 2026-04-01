@@ -25,7 +25,7 @@ namespace Vector06cEmulator
             // Зеркалирование в видеопамять
             if (addr >= 0x1800 && addr <= 0x37FF && _video != null)
             {
-                _video.DirectWriteVideoRam(addr, value);   // новый метод, см. ниже
+                //_video.DirectWriteVideoRam(addr, value);   // новый метод, см. ниже
             }
         }
 
