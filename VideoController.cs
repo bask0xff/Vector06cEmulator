@@ -9,26 +9,27 @@ namespace Vector06cEmulator
         private const int ScreenWidth = 256;
         private const int ScreenHeight = 256;
 
+        private readonly Memory _memory;
+
         private readonly byte[] videoRam = new byte[8192];
         private readonly Color[] palette = new Color[16];
 
-        private int currentPaletteIndex = 0;
-        private byte borderColor = 0;
+        private int currentPaletteIndex = 0;   // цвет "включённых" пикселей (порт 0x01)
+        private byte borderColor = 0;          // цвет "выключенных" пикселей (порт 0x00)
         private byte scrollOffset = 0;
 
-        //_force текущие цвета для отладки
+        // Для отладки (тестовая кнопка)
         private int forcePaletteIndex = -1;
         private int forceBorderColor = -1;
 
-        private Bitmap bitmap;
+        private Bitmap bitmap; // теперь всегда 32bppArgb
 
-        public VideoController()
+        public VideoController(Memory memory)
         {
+            _memory = memory ?? throw new ArgumentNullException(nameof(memory));
             InitializePalette();
-            bitmap = new Bitmap(ScreenWidth, ScreenHeight, PixelFormat.Format8bppIndexed);
-            UpdatePalette();
+            bitmap = new Bitmap(ScreenWidth, ScreenHeight, PixelFormat.Format32bppArgb);
         }
-
 
         private void InitializePalette()
         {
@@ -50,21 +51,20 @@ namespace Vector06cEmulator
             palette[15] = Color.Gray;
         }
 
-        private void UpdatePalette()
+        private uint[] BuildPalette32()
         {
-            var paletteEntry = bitmap.Palette;
+            var p = new uint[16];
             for (int i = 0; i < 16; i++)
             {
-                paletteEntry.Entries[i] = Color.FromArgb(
-                    palette[i].R, palette[i].G, palette[i].B);
+                Color c = palette[i];
+                p[i] = (uint)((0xFF << 24) | (c.R << 16) | (c.G << 8) | c.B);
             }
-            bitmap.Palette = paletteEntry;
+            return p;
         }
 
         public void SetBorderColor(byte value)
         {
-            borderColor = value;
-            currentPaletteIndex = value & 0x0F;
+            borderColor = (byte)(value & 0x0F);   // ← исправлено! не трогаем currentPaletteIndex
         }
 
         public void SetPaletteColor(byte value)
@@ -77,7 +77,7 @@ namespace Vector06cEmulator
             scrollOffset = value;
         }
 
-        // ПУБЛИЧНЫЕ МЕТОДЫ ДЛЯ ОТЛАДКИ
+        // === Отладочные методы ===
         public int GetCurrentPaletteIndex() => currentPaletteIndex;
         public byte GetBorderColor() => borderColor;
 
@@ -99,22 +99,15 @@ namespace Vector06cEmulator
         public byte ReadVideoRam(ushort addr)
         {
             if (addr >= 0x1800 && addr <= 0x37FF)
-                return videoRam[addr - 0x1800];
+                return _memory.Read(addr);   
             return 0;
         }
 
         public void WriteVideoRam(ushort addr, byte value)
         {
             if (addr >= 0x1800 && addr <= 0x37FF)
-                videoRam[addr - 0x1800] = value;
+                _memory.Write(addr, value);  // пишем в общую память
         }
-
-        // Обновление экрана для общего использования
-        public void UpdateScreen()
-        {
-            UpdateScreenInternal(bitmap);
-        }
-
 
         public void ForcePalette(int paletteIdx, int borderIdx)
         {
@@ -122,10 +115,13 @@ namespace Vector06cEmulator
             forceBorderColor = borderIdx;
         }
 
+        public void UpdateScreen()
+        {
+            UpdateScreenInternal(bitmap);
+        }
+
         public void UpdateScreenInternal(Bitmap targetBitmap)
         {
-            //DebugLog($"[UPDATE] before: pal={currentPaletteIndex}, forcePal={forcePaletteIndex}");  // Если есть доступ к MainForm
-
             var bitmapData = targetBitmap.LockBits(
                 new Rectangle(0, 0, ScreenWidth, ScreenHeight),
                 ImageLockMode.WriteOnly,
@@ -135,41 +131,25 @@ namespace Vector06cEmulator
             {
                 uint* ptr = (uint*)bitmapData.Scan0.ToPointer();
 
-                uint[] palette32 = new uint[16]
-                {
-                    0xFF000000,  // 0: чёрный
-                    0xFFFF0000,  // 1: синий (BGR)
-                    0xFF00FF00,  // 2: зелёный
-                    0xFFFF00FF,  // 3: циан
-                    0xFF0000FF,  // 4: красный
-                    0xFFFF00FF,  // 5: маджента
-                    0xFF00FFFF,  // 6: жёлтый
-                    0xFFFFFFFF,  // 7: белый
-                    0xFF808080,  // 8: тёмно-серый
-                    0xFF800000,  // 9: тёмно-синий
-                    0xFF008000,  // 10: тёмно-зелёный
-                    0xFF808000,  // 11: тёмно-циан
-                    0xFF000080,  // 12: тёмно-красный
-                    0xFF800080,  // 13: тёмно-маджента
-                    0xFF00FFFF,  // 14: жёлтый (ярко) ← ВАЖНО: BGR формат!
-                    0xFFC0C0C0   // 15: серый
-                };
+                uint[] palette32 = BuildPalette32();   // твоя функция, которая создаёт uint[16]
 
-                // ИСПРАВЛЕНИЕ: используй force если установлен, иначе текущий
                 int effectivePalette = forcePaletteIndex >= 0 ? forcePaletteIndex : currentPaletteIndex;
-                int effectiveBorder = forceBorderColor >= 0 ? forceBorderColor : (borderColor & 0x0F);
+                int effectiveBorder = forceBorderColor >= 0 ? forceBorderColor : borderColor;
 
                 for (int y = 0; y < ScreenHeight; y++)
                 {
                     int videoLine = (y + scrollOffset) % 256;
-                    int videoAddr = videoLine * 32;
+                    int lineBase = videoLine * 32;                    // 32 байта на строку
 
                     for (int x = 0; x < ScreenWidth; x++)
                     {
-                        int byteAddr = videoAddr + (x / 8);
-                        int bitPos = 7 - (x % 8);
+                        // Правильный абсолютный адрес в памяти
+                        int byteOffset = lineBase + (x / 8);
+                        ushort absoluteAddr = (ushort)(0x1800 + byteOffset);
 
-                        byte pixelByte = (byteAddr < videoRam.Length) ? videoRam[byteAddr] : (byte)0;
+                        byte pixelByte = _memory.Read(absoluteAddr);
+
+                        int bitPos = 7 - (x % 8);
                         bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
 
                         int colorIndex = pixelOn ? effectivePalette : effectiveBorder;
@@ -188,54 +168,15 @@ namespace Vector06cEmulator
 
         public void SaveScreenshot(string filename)
         {
-            var rgbBitmap = new Bitmap(ScreenWidth, ScreenHeight, PixelFormat.Format24bppRgb);
+            using var rgbBitmap = new Bitmap(ScreenWidth, ScreenHeight, PixelFormat.Format24bppRgb);
             using (var g = Graphics.FromImage(rgbBitmap))
-            {
                 g.DrawImage(bitmap, 0, 0);
-            }
-            rgbBitmap.Save(filename, System.Drawing.Imaging.ImageFormat.Png);
-            Console.WriteLine($"Скриншот: {filename}");
+            rgbBitmap.Save(filename, ImageFormat.Png);
         }
 
         public string GetDebugInfo()
         {
             return $"pal={currentPaletteIndex}, border={borderColor}, scroll={scrollOffset}, VRAM_nonzero={CountNonZeroVideoRam()}";
         }
-
-        // В VideoController.cs
-        /*public void UpdateScreenInternal(Bitmap targetBitmap)  // <-- Должно быть public
-        {
-            var bitmapData = targetBitmap.LockBits(
-                new Rectangle(0, 0, ScreenWidth, ScreenHeight),
-                ImageLockMode.WriteOnly,
-                PixelFormat.Format8bppIndexed);
-
-            unsafe
-            {
-                byte* ptr = (byte*)bitmapData.Scan0.ToPointer();
-
-                for (int y = 0; y < ScreenHeight; y++)
-                {
-                    int videoLine = (y + scrollOffset) % 256;
-                    int videoAddr = videoLine * 32;
-
-                    for (int x = 0; x < ScreenWidth; x++)
-                    {
-                        int byteAddr = videoAddr + (x / 8);
-                        int bitPos = 7 - (x % 8);
-
-                        byte pixelByte = (byteAddr < videoRam.Length) ? videoRam[byteAddr] : (byte)0;
-                        bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
-
-                        int colorIndex = pixelOn ? currentPaletteIndex : (borderColor & 0x0F);
-                        int pixelIndex = y * bitmapData.Stride + x;
-
-                        ptr[pixelIndex] = (byte)colorIndex;
-                    }
-                }
-            }
-
-            targetBitmap.UnlockBits(bitmapData);
-        }*/
     }
 }

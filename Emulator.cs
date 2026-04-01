@@ -20,7 +20,7 @@ namespace Vector06cEmulator
         public Emulator()
         {
             Memory = new Memory();
-            Video = new VideoController();
+            Video = new VideoController(Memory);
             Keyboard = new Keyboard();
             IOBus = new IOBus(Video, Keyboard);
             Cpu = new Cpu8080(Memory, IOBus);

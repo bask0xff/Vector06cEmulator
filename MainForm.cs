@@ -94,11 +94,62 @@ namespace Vector06cEmulator
             Controls.Add(pauseButton);
             Controls.Add(statusLabel);
 
+            CreateTestGraphicsRom();
+
 
             // Таймер для обновления экрана (50 Гц)
             screenTimer = new Timer();
             screenTimer.Interval = 20; // 50 Гц
             screenTimer.Tick += ScreenTimer_Tick;
+        }
+
+        private void CreateTestGraphicsRom()   // ← обнови эту функцию
+        {
+            byte[] romData = new byte[]
+            {
+                // Ждём, пока монитор закончит инициализацию (примерно 0xF800+)
+                0x21, 0x00, 0xF8,        // LXI H, F800
+                0x7E,                    // MOV A,M
+                0xFE, 0xC3,              // CPI C3   (обычно там JMP в мониторе)
+                0xCA, 0x0A, 0x01,        // JZ WaitDone
+                0xC3, 0x03, 0x01,        // JMP назад (простая задержка)
+
+                // WaitDone:
+                0x3E, 0x00, 0xD3, 0x00,  // MVI A,00h / OUT 00h   ← чёрная рамка
+                0x3E, 0x01, 0xD3, 0x01,  // MVI A,01h / OUT 01h   ← голубой цвет линий !!!
+                0x3E, 0x00, 0xD3, 0x10,  // MVI A,00h / OUT 10h   ← скролл = 0
+
+                0x21, 0x00, 0x18,        // LXI H,1800h
+                0x06, 0xFF,              // MVI B,FFh     (паттерн: все пиксели включены)
+                0x0E, 0x00,              // MVI C,00h     (счётчик строк в группе)
+                0x16, 0x00,              // MVI D,00h     (256 строк)
+
+                // LineLoop:
+                0x78,                    // MOV A,B
+                0x1E, 0x20,              // MVI E,32      (32 байта на строку)
+                // FillLoop:
+                0x77,                    // MOV M,A
+                0x23,                    // INX H
+                0x1D,                    // DCR E
+                0xC2, 0x25, 0x01,        // JNZ FillLoop
+
+                0x0C,                    // INR C
+                0x79, 0xFE, 0x04,        // MOV A,C / CPI 04
+                0xC2, 0x38, 0x01,        // JNZ SkipToggle
+
+                0x78, 0xEE, 0xFF, 0x47,  // MOV A,B / XRI FF / MOV B,A   ← переключаем паттерн
+                0x0E, 0x00,              // MVI C,00
+
+                // SkipToggle:
+                0x15,                    // DCR D
+                0xC2, 0x1F, 0x01,        // JNZ LineLoop
+
+                0xC3, 0x3C, 0x01         // JMP $   (бесконечный цикл)
+            };
+
+            string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"[ROM] test_graphics.rom обновлён ({romData.Length} байт) → {path}");
         }
 
         private void DebugLog(string message)
@@ -127,7 +178,7 @@ namespace Vector06cEmulator
                 }
             }
 
-            emulator.Video.SetPaletteColor(0x0E);  // жёлтый
+            emulator.Video.SetPaletteColor(0x01); // голубой (Color.Blue)
             emulator.Video.SetBorderColor(0x00);   // чёрный
 
             // ДОБАВЬТЕ: принудительно Brothers перед отрисовкой
@@ -170,10 +221,14 @@ namespace Vector06cEmulator
             if (!isRunning)
             {
                 emulator.LoadMonitors(
-                    GetRomPath("Monitor0.rom"),
+                    GetRomPath("Vector06C.rom"),
                     GetRomPath("MonitorF.rom")
                 );
-                emulator.LoadRom(GetRomPath("binland.rom"));
+                emulator.LoadRom(GetRomPath("test_graphics.rom"));
+
+                emulator.Video.SetBorderColor(0x00);
+                emulator.Video.SetPaletteColor(0x01);   // голубой
+
                 emulator.Start();
 
                 isRunning = true;
@@ -251,6 +306,44 @@ namespace Vector06cEmulator
 
             // Возвращаем как есть (выдаст FileNotFoundException)
             return path1;
+        }
+
+
+        private void CreateTestGraphicsRom1()
+        {
+            byte[] romData = new byte[]
+            {
+                0x3E, 0x00, 0xD3, 0x00,  // MVI A,00 / OUT 00  (border black)
+                0x3E, 0x01, 0xD3, 0x01,  // MVI A,01 / OUT 01  (palette = голубой)
+                0x3E, 0x00, 0xD3, 0x10,  // MVI A,00 / OUT 10  (scroll = 0)
+
+                0x21, 0x00, 0x18,        // LXI H,1800
+                0x06, 0xFF,              // MVI B,FF     (начальный паттерн)
+                0x0E, 0x00,              // MVI C,00     (счётчик в блоке 4-х строк)
+                0x16, 0x00,              // MVI D,00     (256 строк)
+
+                // LineLoop
+                0x78,                    // MOV A,B
+                0x1E, 0x20,              // MVI E,32
+                // FillLoop
+                0x77, 0x23, 0x1D, 0xC2, 0x18, 0x01,  // MOV M,A / INX H / DCR E / JNZ FillLoop
+
+                0x0C,                    // INR C
+                0x79, 0xFE, 0x04,        // MOV A,C / CPI 04
+                0xC2, 0x2B, 0x01,        // JNZ SkipToggle
+
+                0x78, 0xEE, 0xFF, 0x47,  // MOV A,B / XRI FF / MOV B,A
+                0x0E, 0x00,              // MVI C,00
+
+                // SkipToggle
+                0x15, 0xC2, 0x15, 0x01,  // DCR D / JNZ LineLoop
+
+                0xC3, 0x2F, 0x01         // JMP $ (бесконечный цикл)
+            };
+
+            string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"[ROM] test_graphics.rom создан ({romData.Length} байт) → {path}");
         }
     }
 }
