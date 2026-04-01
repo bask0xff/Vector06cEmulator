@@ -127,10 +127,14 @@ namespace Vector06cEmulator
                 }
             }
 
-            emulator.Video.SetPaletteColor(0x0E);
-            emulator.Video.SetBorderColor(0x00);
+            emulator.Video.SetPaletteColor(0x0E);  // жёлтый
+            emulator.Video.SetBorderColor(0x00);   // чёрный
+
+            // ДОБАВЬТЕ: принудительно Brothers перед отрисовкой
+            emulator.Video.ForcePalette(0x0E, 0x00);  // Новый метод
 
             emulator.Video.UpdateScreenInternal(displayBitmap);
+
             pictureBox.Invalidate();
 
             statusLabel.Text = "Тест: жёлтые полосы нарисованы!";
