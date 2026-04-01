@@ -25,9 +25,10 @@ namespace Vector06cEmulator
             if (Halted) return;
 
             ushort oldPC = PC;
-            byte opcode = memory.Read(PC++);
 
-            //Console.WriteLine($"PC={oldPC:X4} OPCODE={opcode:X2}");
+            //Disassembler.Disassemble(memory, oldPC); 
+
+            byte opcode = memory.Read(PC++);
 
             Execute(opcode, oldPC);
         }

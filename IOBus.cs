@@ -17,12 +17,13 @@ namespace Vector06cEmulator
         {
             switch (port)
             {
-                case 0x02: return keyboard.ReadColumn();   // Клавиатура: читаем столбец матрицы
-                case 0x07: return 0xFF;                    // Джойстик (заглушка)
-                case 0x12: return 0x00;                    // Таймер (заглушка)
-                default:
-                    Console.WriteLine($"[IOBus] IN {port:X2} (не реализован)");
-                    return 0xFF;
+                case 0x02: return keyboard.ReadColumn();
+                case 0x07: return 0xFF;
+                case 0x12: return 0x00;
+                case 0xA0: return keyboard.ReadPortA();
+                case 0xA1: return keyboard.ReadPortB();
+                case 0xA2: return keyboard.ReadPortC();
+                default: return 0xFF;  // тихая заглушка
             }
         }
 

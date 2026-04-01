@@ -18,6 +18,11 @@ namespace Vector06cEmulator
                 matrix[i] = 0xFF;
         }
 
+        // Port A — возвращает 0xFF если ничего не нажато
+        public byte ReadPortA() => 0xFF;
+        public byte ReadPortB() => 0xFF;
+        public byte ReadPortC() => 0xFF;
+
         // CPU пишет в порт 0x02 — выбирает строку матрицы
         public void SelectRow(byte value)
         {

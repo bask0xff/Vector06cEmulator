@@ -32,24 +32,24 @@ namespace Vector06cEmulator
             {
                 var data = File.ReadAllBytes(monitor0Path);
                 Memory.Load(data, 0x0000);
-                Console.WriteLine($"Monitor0 загружен: {monitor0Path} ({data.Length} байт) -> 0x0000");
+                Console.WriteLine($"Monitor0 loaded: {monitor0Path} ({data.Length} bytes) -> 0x0000");
             }
-            else Console.WriteLine($"ВНИМАНИЕ: {monitor0Path} не найден");
+            else Console.WriteLine($"ATTENTION: {monitor0Path} not found");
 
             if (File.Exists(monitorFPath))
             {
                 var data = File.ReadAllBytes(monitorFPath);
                 Memory.Load(data, 0xF800);
-                Console.WriteLine($"MonitorF загружен: {monitorFPath} ({data.Length} байт) -> 0xF800");
+                Console.WriteLine($"MonitorF loaded: {monitorFPath} ({data.Length} bytes) -> 0xF800");
             }
-            else Console.WriteLine($"ВНИМАНИЕ: {monitorFPath} не найден");
+            else Console.WriteLine($"ATTENTION: {monitorFPath} not found");
         }
 
         public void LoadRom(string path, ushort address = 0x0100)
         {
             var data = File.ReadAllBytes(path);
             Memory.Load(data, address);
-            Console.WriteLine($"ROM загружен: {path} ({data.Length} байт) -> 0x{address:X4}");
+            Console.WriteLine($"ROM loaded: {path} ({data.Length} bytes) -> 0x{address:X4}");
         }
 
         public void Start()
@@ -57,7 +57,7 @@ namespace Vector06cEmulator
             Cpu.PC = 0x0000;
             Cpu.SP = 0xC000;
             cycleCounter = 0;
-            Console.WriteLine("CPU запущен с 0x0000");
+            Console.WriteLine("CPU started from 0x0000");
         }
 
         // Один шаг CPU + обработка прерывания если пора
@@ -84,7 +84,7 @@ namespace Vector06cEmulator
             }
 
             if (steps >= maxSteps)
-                Console.WriteLine($"\nОстановлен по лимиту ({maxSteps} шагов), PC={Cpu.PC:X4}");
+                Console.WriteLine($"\nStopped by limit ({maxSteps} steps), PC={Cpu.PC:X4}");
 
             PrintState();
         }
