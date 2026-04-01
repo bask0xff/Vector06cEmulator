@@ -43,7 +43,7 @@ namespace Vector06cEmulator
                 case 0x21: /* расширенный регистр — позже */ break;
                 case 0x3A: /* расширенный регистр — позже */ break;
                 default:
-                    Console.WriteLine($"[IOBus] OUT {port:X2} = {value:X2} (не реализован)");
+                    //Console.WriteLine($"[IOBus] OUT {port:X2} = {value:X2} (не реализован)");
                     break;
             }
         }

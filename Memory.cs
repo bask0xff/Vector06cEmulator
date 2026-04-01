@@ -1,4 +1,6 @@
-﻿namespace Vector06cEmulator
+﻿using System;
+
+namespace Vector06cEmulator
 {
     public class Memory
     {
