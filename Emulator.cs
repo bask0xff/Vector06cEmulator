@@ -21,6 +21,8 @@ namespace Vector06cEmulator
         {
             Memory = new Memory();
             Video = new VideoController(Memory);
+            Memory.SetVideoController(Video);   // ← важно! связываем их
+
             Keyboard = new Keyboard();
             IOBus = new IOBus(Video, Keyboard);
             Cpu = new Cpu8080(Memory, IOBus);

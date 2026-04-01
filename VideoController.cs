@@ -120,6 +120,13 @@ namespace Vector06cEmulator
             UpdateScreenInternal(bitmap);
         }
 
+        // Новый прямой метод (будет вызываться из Memory)
+        public void DirectWriteVideoRam(ushort addr, byte value)
+        {
+            // Ничего не делаем дополнительно — данные уже в _memory
+            // Можно добавить отладку при необходимости: DebugLog...
+        }
+
         public void UpdateScreenInternal(Bitmap targetBitmap)
         {
             var bitmapData = targetBitmap.LockBits(
@@ -130,8 +137,7 @@ namespace Vector06cEmulator
             unsafe
             {
                 uint* ptr = (uint*)bitmapData.Scan0.ToPointer();
-
-                uint[] palette32 = BuildPalette32();   // твоя функция, которая создаёт uint[16]
+                uint[] palette32 = BuildPalette32();
 
                 int effectivePalette = forcePaletteIndex >= 0 ? forcePaletteIndex : currentPaletteIndex;
                 int effectiveBorder = forceBorderColor >= 0 ? forceBorderColor : borderColor;
@@ -139,15 +145,14 @@ namespace Vector06cEmulator
                 for (int y = 0; y < ScreenHeight; y++)
                 {
                     int videoLine = (y + scrollOffset) % 256;
-                    int lineBase = videoLine * 32;                    // 32 байта на строку
+                    int lineBase = videoLine * 32;
 
                     for (int x = 0; x < ScreenWidth; x++)
                     {
-                        // Правильный абсолютный адрес в памяти
                         int byteOffset = lineBase + (x / 8);
-                        ushort absoluteAddr = (ushort)(0x1800 + byteOffset);
+                        ushort addr = (ushort)(0x1800 + byteOffset);
 
-                        byte pixelByte = _memory.Read(absoluteAddr);
+                        byte pixelByte = _memory.Read(addr);        // ← теперь из общей памяти!
 
                         int bitPos = 7 - (x % 8);
                         bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
