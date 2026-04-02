@@ -11,6 +11,10 @@ namespace Vector06cEmulator
         public readonly IOBus IOBus;
         public readonly Cpu8080 Cpu;
 
+        public Action<string> LogCallback { get; set; }
+
+        private void Log(string msg) => LogCallback?.Invoke(msg);
+
         // Вектор-06Ц: тактовая частота ~3 МГц, прерывание 50 Гц (PAL)
         // 3_000_000 / 50 = 60_000 тактов между прерываниями
         // Пока у нас нет подсчёта тактов — считаем инструкции (приближение)
@@ -93,15 +97,20 @@ namespace Vector06cEmulator
 
         public void PrintState()
         {
-            Console.WriteLine("\n═══════════════════════════════");
-            Console.WriteLine("        EXECUTION RESULTS      ");
-            Console.WriteLine("═══════════════════════════════");
-            Console.WriteLine($"  A={Cpu.A:X2}  B={Cpu.B:X2}  C={Cpu.C:X2}");
-            Console.WriteLine($"  D={Cpu.D:X2}  E={Cpu.E:X2}");
-            Console.WriteLine($"  H={Cpu.H:X2}  L={Cpu.L:X2}");
-            Console.WriteLine($"  SP={Cpu.SP:X4}  PC={Cpu.PC:X4}");
-            Console.WriteLine($"  Z={Cpu.Z} S={Cpu.S} CY={Cpu.CY} P={Cpu.P} AC={Cpu.AC}");
-            Console.WriteLine("═══════════════════════════════");
+            var lines = new[]
+            {
+            "═══════════════════════════════",
+            "        CPU STATE              ",
+            "═══════════════════════════════",
+            $"  A={Cpu.A:X2}  B={Cpu.B:X2}  C={Cpu.C:X2}",
+            $"  D={Cpu.D:X2}  E={Cpu.E:X2}",
+            $"  H={Cpu.H:X2}  L={Cpu.L:X2}",
+            $"  SP={Cpu.SP:X4}  PC={Cpu.PC:X4}",
+            $"  Z={Cpu.Z} S={Cpu.S} CY={Cpu.CY} P={Cpu.P} AC={Cpu.AC}",
+            $"  Halted={Cpu.Halted}  IFF={Cpu.IFF}",
+            "═══════════════════════════════"
+        };
+            foreach (var l in lines) Log(l);
         }
     }
 }

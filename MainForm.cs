@@ -20,6 +20,8 @@ namespace Vector06cEmulator
 
         private bool isRunning = false;
 
+        private int _tickCount = 0;
+
         public MainForm()
         {
             Text = "Вектор-06Ц Эмулятор";
@@ -70,6 +72,7 @@ namespace Vector06cEmulator
             testButton.Click += TestButton_Click;
 
             emulator = new Emulator();
+            emulator.LogCallback = msg => DebugLog(msg);
 
             displayBitmap = new Bitmap(256, 256, PixelFormat.Format32bppArgb);
             pictureBox.Image = displayBitmap;
@@ -416,20 +419,21 @@ namespace Vector06cEmulator
         {
             if (!isRunning)
             {
-                emulator.LoadMonitors(
-                    GetRomPath("Vector06C.rom"),
-                    GetRomPath("MonitorF.rom")
-                );
-                emulator.LoadRom(GetRomPath("test_graphics.rom"));
-                //emulator.LoadRom(GetRomPath("factorial2.bin"));
+                //emulator.LoadMonitors(
+                //    GetRomPath("Vector06C.rom"),
+                //    GetRomPath("MonitorF.rom")
+                //);
+                emulator.LoadRom(GetRomPath("test_graphics.rom"), 0x0100);
+
+                emulator.Cpu.PC = 0x0100;   // сразу на ROM
+                emulator.Cpu.SP = 0xC000;
 
                 emulator.Video.SetBorderColor(0x00);
-                emulator.Video.SetPaletteColor(0x01);   // голубой
-
-                emulator.Start();
+                emulator.Video.SetPaletteColor(0x03);
 
                 isRunning = true;
                 screenTimer.Start();
+
                 statusLabel.Text = "Статус: Запущен";
                 runButton.Enabled = false;
                 pauseButton.Enabled = true;
@@ -464,13 +468,13 @@ namespace Vector06cEmulator
 
             // Обновляем экран
             emulator.Video.UpdateScreen();
-
-            // Показываем изображение в PictureBox
             pictureBox.Image?.Dispose();
             pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
 
-            statusLabel.Text = $"Статус: Запущен, PC={emulator.Cpu.PC:X4}";
+            if (++_tickCount % 50 == 0)   // каждую секунду
+                emulator.PrintState();
         }
+
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
@@ -506,6 +510,104 @@ namespace Vector06cEmulator
         }
 
         private void CreateTestGraphicsRom()
+        {
+            // Шахматная доска 8x8 с анимацией (инверсия)
+            // Загружается по 0x0100
+            // 
+            // Карта адресов:
+            //   0x0100  Init
+            //   0x010C  DrawBoard
+            //   0x0132  WaitLoop
+            //   0x013E  InvertBoard
+            //   0x0155  JMP WaitLoop
+
+            byte[] rom = new byte[]
+            {
+                // 0x0100 — Инициализация
+                0x3E, 0x00, 0xD3, 0x00,   // MVI A,00 / OUT 00 (фон = чёрный)
+                0x3E, 0x03, 0xD3, 0x01,   // MVI A,03 / OUT 01 (цвет = голубой)
+                0x3E, 0x00, 0xD3, 0x10,   // MVI A,00 / OUT 10 (скролл = 0)
+
+                // 0x010C — Рисуем шахматную доску
+                // Каждый клетка = 32x32 пикселя = 4 строки VRAM * 4 байта
+                // 8 клеток по X = 32 байта строки; 8 клеток по Y = 256 строк
+                // Паттерн: 4 байта FF FF FF FF / 00 00 00 00 чередуются блоками по 32 строки
+                0x21, 0x00, 0x18,          // LXI H, 0x1800
+                0x06, 0x08,                // MVI B, 8  (8 "рядов" клеток)
+
+                // RowLoop: 0x0113
+                // --- 32 строки с паттерном FF 00 FF 00... (4+4 байт = 8, x4 = 32 байта)
+                0x0E, 0x20,                // MVI C, 32 (32 строки на ряд)
+
+                // LineLoop: 0x0115
+                0x16, 0x04,                // MVI D, 4 (4 раза: FF FF FF FF)
+                0x3E, 0xFF,                // MVI A, 0xFF
+                // Fill4FF: 0x0119
+                0x77, 0x23, 0x15,          // MOV M,A / INX H / DCR D
+                0xC2, 0x19, 0x01,          // JNZ Fill4FF
+
+                0x16, 0x04,                // MVI D, 4 (4 раза: 00 00 00 00)
+                0x3E, 0x00,                // MVI A, 0x00
+                // Fill4Z: 0x0123
+                0x77, 0x23, 0x15,          // MOV M,A / INX H / DCR D
+                0xC2, 0x23, 0x01,          // JNZ Fill4Z
+
+                0x0D,                      // DCR C
+                0xC2, 0x15, 0x01,          // JNZ LineLoop
+
+                // --- Ещё 32 строки с инвертированным паттерном 00 FF 00 FF...
+                0x0E, 0x20,                // MVI C, 32
+
+                // LineLoop2: 0x012E
+                0x16, 0x04,                // MVI D, 4
+                0x3E, 0x00,
+                // Fill4Z2: 0x0132
+                0x77, 0x23, 0x15,
+                0xC2, 0x32, 0x01,          // JNZ Fill4Z2
+
+                0x16, 0x04,
+                0x3E, 0xFF,
+                // Fill4FF2: 0x013C
+                0x77, 0x23, 0x15,
+                0xC2, 0x3C, 0x01,          // JNZ Fill4FF2
+
+                0x0D,
+                0xC2, 0x2E, 0x01,          // JNZ LineLoop2
+
+                0x05,                      // DCR B
+                0xC2, 0x13, 0x01,          // JNZ RowLoop
+
+                // 0x0149 — Задержка ~0.5 сек (цикл ~200000 итераций)
+                0x01, 0x00, 0x00,          // LXI B, 0  (будет 65536 итераций через переполнение)
+                // Delay: 0x014C
+                0x0B,                      // DCX B
+                0x78, 0xB1,                // MOV A,B / ORA C
+                0xC2, 0x4C, 0x01,          // JNZ Delay
+
+                // 0x0153 — Инвертируем весь VRAM (XOR 0xFF)
+                0x21, 0x00, 0x18,          // LXI H, 0x1800
+                0x11, 0x00, 0x20,          // LXI D, 8192 (0x2000)
+
+                // InvLoop: 0x015C
+                0x7E,                      // MOV A, M
+                0xEE, 0xFF,                // XRI 0xFF
+                0x77,                      // MOV M, A
+                0x23,                      // INX H
+                0x1B,                      // DCX D
+                0x7A, 0xB3,                // MOV A,D / ORA E
+                0xC2, 0x5C, 0x01,          // JNZ InvLoop
+
+                // 0x0167 — JMP к задержке (анимация)
+                0xC3, 0x49, 0x01           // JMP 0x0149
+            };
+
+            string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
+            File.WriteAllBytes(path, rom);
+            DebugLog($"[ROM] test_graphics.rom создан ({rom.Length} байт) → {path}");
+            DebugLog($"[ROM] Шахматная доска 8x8 с анимацией инверсии");
+        }
+
+        private void CreateTestGraphicsRom3()
         {
             // Адреса при загрузке по 0x0100:
             // 0x0100 - начало программы
