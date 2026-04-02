@@ -147,7 +147,7 @@ namespace Vector06cEmulator
             }
 
             // Сбрасываем CPU
-            emulator.Cpu.PC = 0x0000;
+            emulator.Cpu.PC = 0x0100;
             emulator.Cpu.SP = 0xC000;
             emulator.Cpu.A = 0;
             emulator.Cpu.B = 0;
@@ -511,100 +511,280 @@ namespace Vector06cEmulator
 
         private void CreateTestGraphicsRom()
         {
-            // Шахматная доска 8x8 с анимацией (инверсия)
-            // Загружается по 0x0100
-            // 
-            // Карта адресов:
-            //   0x0100  Init
+            // Шахматная доска: клетки 8x8 пикселей
+            // Строка = 32 байта = 256 пикселей
+            // Паттерн строки чётного ряда:  AA AA AA AA ... (32 байта)
+            // Паттерн строки нечётного ряда: 55 55 55 55 ... (32 байта)
+            // Каждые 8 строк — инвертируем паттерн строки
+            //
+            // Загрузка по 0x0100
+            // Адреса (вычислены вручную):
+            //   0x0100  Init (12 байт)
             //   0x010C  DrawBoard
-            //   0x0132  WaitLoop
-            //   0x013E  InvertBoard
-            //   0x0155  JMP WaitLoop
+            //   0x010E    RowLoop
+            //   0x0110      LineLoop
+            //   0x0116        ByteLoop
+            //   ...
 
             byte[] rom = new byte[]
             {
-                // 0x0100 — Инициализация
-                0x3E, 0x00, 0xD3, 0x00,   // MVI A,00 / OUT 00 (фон = чёрный)
-                0x3E, 0x03, 0xD3, 0x01,   // MVI A,03 / OUT 01 (цвет = голубой)
-                0x3E, 0x00, 0xD3, 0x10,   // MVI A,00 / OUT 10 (скролл = 0)
+        // 0x0100 — Инициализация портов
+        0x3E, 0x00, 0xD3, 0x00,    // MVI A,00 / OUT 00  (фон = чёрный)
+        0x3E, 0x03, 0xD3, 0x01,    // MVI A,03 / OUT 01  (цвет = голубой)
+        0x3E, 0x00, 0xD3, 0x10,    // MVI A,00 / OUT 10  (скролл = 0)
 
-                // 0x010C — Рисуем шахматную доску
-                // Каждый клетка = 32x32 пикселя = 4 строки VRAM * 4 байта
-                // 8 клеток по X = 32 байта строки; 8 клеток по Y = 256 строк
-                // Паттерн: 4 байта FF FF FF FF / 00 00 00 00 чередуются блоками по 32 строки
-                0x21, 0x00, 0x18,          // LXI H, 0x1800
-                0x06, 0x08,                // MVI B, 8  (8 "рядов" клеток)
+        // 0x010C — Начало DrawBoard
+        0x21, 0x00, 0x18,          // LXI H, 0x1800   (H=начало VRAM)
 
-                // RowLoop: 0x0113
-                // --- 32 строки с паттерном FF 00 FF 00... (4+4 байт = 8, x4 = 32 байта)
-                0x0E, 0x20,                // MVI C, 32 (32 строки на ряд)
+        // B = счётчик рядов клеток (8 рядов по 8 строк + 8 рядов)
+        // Используем D как "номер ряда" для выбора паттерна
+        // D=0 → чётный ряд (AA/55), D=1 → нечётный (55/AA)
+        0x16, 0x00,                // MVI D, 0   (номер ряда, чётность)
+        0x06, 0x20,                // MVI B, 32  (32 ряда по 8 строк = 256 строк)
 
-                // LineLoop: 0x0115
-                0x16, 0x04,                // MVI D, 4 (4 раза: FF FF FF FF)
-                0x3E, 0xFF,                // MVI A, 0xFF
-                // Fill4FF: 0x0119
-                0x77, 0x23, 0x15,          // MOV M,A / INX H / DCR D
-                0xC2, 0x19, 0x01,          // JNZ Fill4FF
+        // RowLoop: 0x0114
+        // Выбираем паттерн: чётный ряд → C=0xAA, нечётный → C=0x55
+        0x7A,                      // MOV A, D
+        0xE6, 0x01,                // ANI 0x01   (проверяем бит 0)
+        0xCA, 0x1C, 0x01,          // JZ EvenRow (0x011C)
+        // Нечётный ряд:
+        0x0E, 0x55,                // MVI C, 0x55
+        0xC3, 0x1E, 0x01,          // JMP AfterPat (0x011E)
+        // EvenRow: 0x011C
+        0x0E, 0xAA,                // MVI C, 0xAA
+        // AfterPat: 0x011E
 
-                0x16, 0x04,                // MVI D, 4 (4 раза: 00 00 00 00)
-                0x3E, 0x00,                // MVI A, 0x00
-                // Fill4Z: 0x0123
-                0x77, 0x23, 0x15,          // MOV M,A / INX H / DCR D
-                0xC2, 0x23, 0x01,          // JNZ Fill4Z
+        // Рисуем 8 строк текущего ряда
+        0x1E, 0x08,                // MVI E, 8  (8 строк на ряд)
 
-                0x0D,                      // DCR C
-                0xC2, 0x15, 0x01,          // JNZ LineLoop
+        // LineLoop: 0x0120
+        // Рисуем одну строку (32 байта) с чередованием AA/55
+        // Если чётная строка ряда → паттерн C, нечётная → инверсия C
+        // Но для шахматки достаточно: все строки ряда одинаковы,
+        // главное что соседний ряд инвертирован.
+        // Внутри строки: байты чередуем AA 55 AA 55... (дают вертикальные полоски 4px)
+        // Для клеток 8px используем: 0xFF на 4 байта, 0x00 на 4 байта (блоки 32px)
+        // Проще: используем C как паттерн байта для всей строки
 
-                // --- Ещё 32 строки с инвертированным паттерном 00 FF 00 FF...
-                0x0E, 0x20,                // MVI C, 32
+        0x79,                      // MOV A, C   (берём паттерн)
+        0x26, 0x20,                // MVI H_temp... нет, просто заполним 32 байта
 
-                // LineLoop2: 0x012E
-                0x16, 0x04,                // MVI D, 4
-                0x3E, 0x00,
-                // Fill4Z2: 0x0132
-                0x77, 0x23, 0x15,
-                0xC2, 0x32, 0x01,          // JNZ Fill4Z2
+        // Заполняем 32 байта: чередуем C и ~C по 4 байта (клетки 32px)
+        // PatInner: запишем 4 байта C, потом 4 байта ~C, повторить 4 раза
 
-                0x16, 0x04,
-                0x3E, 0xFF,
-                // Fill4FF2: 0x013C
-                0x77, 0x23, 0x15,
-                0xC2, 0x3C, 0x01,          // JNZ Fill4FF2
+        // Используем регистр для счётчика внутри строки
+        0x26, 0x04,                // ... 
 
-                0x0D,
-                0xC2, 0x2E, 0x01,          // JNZ LineLoop2
+        // УПРОЩЕНИЕ: для наглядности — вся строка одним байтом-паттерном
+        // (чередование рядов даёт горизонтальные полосы, 
+        //  чередование байт внутри строки даёт вертикальные)
+        // Паттерн C меняем между строками тоже — для шахматки:
+        0x79,                      // MOV A, C
+        0x47,                      // MOV B_save... 
 
-                0x05,                      // DCR B
-                0xC2, 0x13, 0x01,          // JNZ RowLoop
-
-                // 0x0149 — Задержка ~0.5 сек (цикл ~200000 итераций)
-                0x01, 0x00, 0x00,          // LXI B, 0  (будет 65536 итераций через переполнение)
-                // Delay: 0x014C
-                0x0B,                      // DCX B
-                0x78, 0xB1,                // MOV A,B / ORA C
-                0xC2, 0x4C, 0x01,          // JNZ Delay
-
-                // 0x0153 — Инвертируем весь VRAM (XOR 0xFF)
-                0x21, 0x00, 0x18,          // LXI H, 0x1800
-                0x11, 0x00, 0x20,          // LXI D, 8192 (0x2000)
-
-                // InvLoop: 0x015C
-                0x7E,                      // MOV A, M
-                0xEE, 0xFF,                // XRI 0xFF
-                0x77,                      // MOV M, A
-                0x23,                      // INX H
-                0x1B,                      // DCX D
-                0x7A, 0xB3,                // MOV A,D / ORA E
-                0xC2, 0x5C, 0x01,          // JNZ InvLoop
-
-                // 0x0167 — JMP к задержке (анимация)
-                0xC3, 0x49, 0x01           // JMP 0x0149
+        // Перепишем проще — отдельные регистры:
+        // Уберём всё лишнее
+        0x76,                      // HLT — заглушка, перепишем ниже
             };
 
-            string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
-            File.WriteAllBytes(path, rom);
-            DebugLog($"[ROM] test_graphics.rom создан ({rom.Length} байт) → {path}");
-            DebugLog($"[ROM] Шахматная доска 8x8 с анимацией инверсии");
+            // ↑ Этот подход стал запутанным. Пересчитаем с нуля чисто.
+            DebugLog("[ROM] Генерирую шахматку...");
+            CreateChessRom();
+        }
+
+        private void CreateChessRom()
+        {
+            // Шахматная доска 8x8 клеток, каждая клетка 32x32 пикселя
+            // Строка VRAM = 32 байта = 256 пикселей
+            // Клетка по X = 32 пикселя = 4 байта
+            // Клетка по Y = 32 строки
+            //
+            // Ряд чётный  (0,2,4,6): байты FF FF FF FF 00 00 00 00 FF FF FF FF 00 00 00 00 ... (32 байта)
+            // Ряд нечётный(1,3,5,7): байты 00 00 00 00 FF FF FF FF 00 00 00 00 FF FF FF FF ... (32 байта)
+            //
+            // Итого: 8 рядов * 32 строки = 256 строк ✓
+            //
+            // Алгоритм:
+            //   B = ряд (0..7)
+            //   для каждого ряда:
+            //     C = 32 строки
+            //     для каждой строки:
+            //       записать 8 раз: [4 байта PAT1][4 байта PAT2]
+            //       где PAT1=FF,PAT2=00 если ряд чётный; PAT1=00,PAT2=FF если нечётный
+            //
+            // Адреса (база 0x0100):
+            // +0x00 = 0x0100: Init (12 байт)
+            // +0x0C = 0x010C: LXI H,1800  (3)
+            // +0x0F = 0x010F: MVI B,8     (2)
+            // +0x11 = 0x0111: RowLoop     ← метка
+            //   +0x00: MOV A,B            (1) 0x0111
+            //   +0x01: ANI 01             (2) 0x0112
+            //   +0x03: JZ EvenRow         (3) 0x0114  → 0x011A
+            //   +0x06: MVI D,00 (PAT1=00) (2) 0x0117
+            //   +0x08: MVI E,FF (PAT2=FF) (2) 0x0119
+            //   +0x0A: JMP AfterPat       (3) 0x011B  → 0x011F
+            // EvenRow: 0x011E (смещение +0x0E от RowLoop=0x0111 → 0x011F нет, пересчитаем)
+            //
+            // Лучше — посчитать байт за байтом:
+
+            // Смещение от начала массива (= адрес - 0x0100):
+            // [0]  3E 00 D3 00   MVI A,0 / OUT 0
+            // [4]  3E 03 D3 01   MVI A,3 / OUT 1
+            // [8]  3E 00 D3 10   MVI A,0 / OUT 0x10
+            // [12] 21 00 18      LXI H, 0x1800
+            // [15] 06 08         MVI B, 8         ; B = ряд (8 рядов)
+            // RowLoop: смещение 17 → адрес 0x0111
+            // [17] 78            MOV A, B
+            // [18] E6 01         ANI 01
+            // [20] CA 28 01      JZ 0x0128        ; чётный → PAT1=FF
+            // [23] 16 00         MVI D, 0x00      ; нечётный PAT1=00
+            // [25] 1E FF         MVI E, 0xFF      ; нечётный PAT2=FF
+            // [27] C3 2A 01      JMP 0x012A
+            // EvenRow: смещение 30 → 0x011E... нет, 0x0100+30=0x011E, но JZ выше → 0x0128?
+            // Ошибка: 0x0100 + 0x28 = 0x0128, а смещение 30 = 0x1E → 0x0100+0x1E = 0x011E ≠ 0x0128
+            // 
+            // Нужно считать точно. Сделаем это программно:
+
+            var code = new System.Collections.Generic.List<byte>();
+
+            // Вспомогательная функция: текущий адрес
+            ushort BaseAddr = 0x0100;
+            ushort Addr() => (ushort)(BaseAddr + code.Count);
+
+            void Emit(params byte[] bytes) { foreach (var b in bytes) code.Add(b); }
+            void EmitWord(ushort w) { code.Add((byte)(w & 0xFF)); code.Add((byte)(w >> 8)); }
+
+            // Плейсхолдеры для патчинга адресов
+            int PlaceholderJZ() { var pos = code.Count; Emit(0xCA, 0x00, 0x00); return pos; }
+            int PlaceholderJMP() { var pos = code.Count; Emit(0xC3, 0x00, 0x00); return pos; }
+            int PlaceholderJNZ() { var pos = code.Count; Emit(0xC2, 0x00, 0x00); return pos; }
+            void PatchAddr(int pos, ushort addr)
+            {
+                code[pos + 1] = (byte)(addr & 0xFF);
+                code[pos + 2] = (byte)(addr >> 8);
+            }
+
+            // === Init ===
+            Emit(0x3E, 0x00, 0xD3, 0x00);   // MVI A,0 / OUT 0
+            Emit(0x3E, 0x03, 0xD3, 0x01);   // MVI A,3 / OUT 1
+            Emit(0x3E, 0x00, 0xD3, 0x10);   // MVI A,0 / OUT 0x10
+
+            // LXI H, 0x1800
+            Emit(0x21, 0x00, 0x18);
+
+            // MVI B, 8  (8 рядов клеток)
+            Emit(0x06, 0x08);
+
+            // RowLoop:
+            ushort addrRowLoop = Addr();
+
+            // MOV A,B / ANI 1
+            Emit(0x78, 0xE6, 0x01);
+
+            // JZ EvenRow (будем патчить)
+            int jzEven = PlaceholderJZ();
+
+            // Нечётный ряд: PAT1=0x00, PAT2=0xFF
+            Emit(0x16, 0x00);   // MVI D, 0x00
+            Emit(0x1E, 0xFF);   // MVI E, 0xFF
+            int jmpAfterPat1 = PlaceholderJMP();
+
+            // EvenRow:
+            ushort addrEven = Addr();
+            PatchAddr(jzEven, addrEven);
+
+            // Чётный ряд: PAT1=0xFF, PAT2=0x00
+            Emit(0x16, 0xFF);   // MVI D, 0xFF
+            Emit(0x1E, 0x00);   // MVI E, 0x00
+
+            // AfterPat:
+            ushort addrAfterPat = Addr();
+            PatchAddr(jmpAfterPat1, addrAfterPat);
+
+            // MVI C, 32  (32 строки на ряд)
+            Emit(0x0E, 0x20);
+
+            // LineLoop:
+            ushort addrLineLoop = Addr();
+
+            // Рисуем одну строку: 8 блоков по 4 байта (PAT1 PAT1 PAT1 PAT1 PAT2 PAT2 PAT2 PAT2) x4
+            // Используем стек для сохранения C (счётчик строк)
+            // A-регистры: D=PAT1, E=PAT2
+            // Будем использовать счётчик блоков в регистре (вложенный цикл)
+
+            // PUSH B (сохраняем B=ряд, C=строки)
+            Emit(0xC5);
+
+            // MVI B, 4  (4 блока [PAT1×4 + PAT2×4] = 32 байта)
+            Emit(0x06, 0x04);
+
+            // BlockLoop:
+            ushort addrBlockLoop = Addr();
+
+            // Пишем 4 байта PAT1 (D)
+            Emit(0x7A);           // MOV A, D
+            Emit(0x77, 0x23);     // MOV M,A / INX H
+            Emit(0x77, 0x23);     // MOV M,A / INX H
+            Emit(0x77, 0x23);     // MOV M,A / INX H
+            Emit(0x77, 0x23);     // MOV M,A / INX H
+
+            // Пишем 4 байта PAT2 (E)
+            Emit(0x7B);           // MOV A, E
+            Emit(0x77, 0x23);     // MOV M,A / INX H
+            Emit(0x77, 0x23);     // MOV M,A / INX H
+            Emit(0x77, 0x23);     // MOV M,A / INX H
+            Emit(0x77, 0x23);     // MOV M,A / INX H
+
+            // DCR B / JNZ BlockLoop
+            Emit(0x05);
+            int jnzBlock = PlaceholderJNZ();
+            PatchAddr(jnzBlock, addrBlockLoop);
+
+            // POP B (восстанавливаем B=ряд, C=строки)
+            Emit(0xC1);
+
+            // DCR C / JNZ LineLoop
+            Emit(0x0D);
+            int jnzLine = PlaceholderJNZ();
+            PatchAddr(jnzLine, addrLineLoop);
+
+            // DCR B / JNZ RowLoop
+            Emit(0x05);
+            int jnzRow = PlaceholderJNZ();
+            PatchAddr(jnzRow, addrRowLoop);
+
+            // === Задержка ~1 сек ===
+            ushort addrDelay = Addr();
+            Emit(0x01, 0x00, 0x00);   // LXI B, 0  (65536 итераций)
+            ushort addrDelayLoop = Addr();
+            Emit(0x0B);               // DCX B
+            Emit(0x78, 0xB1);         // MOV A,B / ORA C
+            int jnzDelay = PlaceholderJNZ();
+            PatchAddr(jnzDelay, addrDelayLoop);
+
+            // === Инверсия VRAM ===
+            Emit(0x21, 0x00, 0x18);   // LXI H, 0x1800
+            Emit(0x11, 0x00, 0x20);   // LXI D, 0x2000 (8192)
+            ushort addrInvLoop = Addr();
+            Emit(0x7E);               // MOV A, M
+            Emit(0xEE, 0xFF);         // XRI 0xFF
+            Emit(0x77);               // MOV M, A
+            Emit(0x23);               // INX H
+            Emit(0x1B);               // DCX D
+            Emit(0x7A, 0xB3);         // MOV A,D / ORA E
+            int jnzInv = PlaceholderJNZ();
+            PatchAddr(jnzInv, addrInvLoop);
+
+            // JMP Delay (анимация)
+            int jmpAnim = PlaceholderJMP();
+            PatchAddr(jmpAnim, addrDelay);
+
+            byte[] romData = code.ToArray();
+
+            string path = System.IO.Path.Combine(GetProjectPath(), "test_graphics.rom");
+            System.IO.File.WriteAllBytes(path, romData);
+            DebugLog($"[ROM] Шахматная доска: {romData.Length} байт → {path}");
+            DebugLog($"[ROM] RowLoop=0x{addrRowLoop:X4}, LineLoop=0x{addrLineLoop:X4}, DelayLoop=0x{addrDelayLoop:X4}");
         }
 
         private void CreateTestGraphicsRom3()
