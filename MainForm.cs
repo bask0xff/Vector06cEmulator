@@ -235,7 +235,7 @@ namespace Vector06cEmulator
             DebugLog($"[ROM] animation.rom создан ({romData.Length} байт)");
         }
 
-        private void CreateTestGraphicsRom0()   // ← обнови эту функцию
+        private void CreateTestGraphicsRom0()   
         {
             byte[] romData = new byte[]
             {
@@ -311,8 +311,8 @@ namespace Vector06cEmulator
             }
 
             // Устанавливаем цвета через IOBus (правильный способ)
-            emulator.IOBus.Out(0x00, 0x00); // Черный фон
-            emulator.IOBus.Out(0x01, 0x06); // Желтые пиксели
+            emulator.IOBus.Out(0x00, 0x09); // 06 - жёлтый фон
+            emulator.IOBus.Out(0x01, 0x03); // 03 - голубые пиксели
 
             // Обновляем экран
             emulator.Video.UpdateScreen();
@@ -421,6 +421,7 @@ namespace Vector06cEmulator
                     GetRomPath("MonitorF.rom")
                 );
                 emulator.LoadRom(GetRomPath("test_graphics.rom"));
+                //emulator.LoadRom(GetRomPath("factorial2.bin"));
 
                 emulator.Video.SetBorderColor(0x00);
                 emulator.Video.SetPaletteColor(0x01);   // голубой
@@ -504,6 +505,78 @@ namespace Vector06cEmulator
             return path1;
         }
 
+        private void CreateTestGraphicsRom()
+        {
+            // Адреса при загрузке по 0x0100:
+            // 0x0100 - начало программы
+            // Метки вычислены вручную
+
+            byte[] romData = new byte[]
+            {
+                    // === Инициализация видеорежима ===
+                    // 0x0100
+                    0x3E, 0x00, 0xD3, 0x00,  // MVI A,00 / OUT 00  - черный фон
+                    0x3E, 0x05, 0xD3, 0x01,  // MVI A,06 / OUT 01  - желтые пиксели
+                    0x3E, 0x00, 0xD3, 0x10,  // MVI A,00 / OUT 10  - скроллинг 0
+
+                    // === Очистка VRAM (256*32 = 8192 байта) ===
+                    // 0x010C
+                    0x21, 0x00, 0x18,        // LXI H, 0x1800
+                    0x11, 0x00, 0x20,        // LXI D, 0x2000  (счётчик 8192 = 0x2000)
+                    0xAF,                    // XRA A  (A = 0)
+                    // ClearLoop: 0x0115
+                    0x77,                    // MOV M, A
+                    0x23,                    // INX H
+                    0x1B,                    // DCX D
+                    0x7A, 0xB3,              // MOV A,D / ORA E
+                    0xC2, 0x15, 0x01,        // JNZ ClearLoop (0x0115)
+
+                    // === Рисуем горизонтальные полосы: 16 блоков по 16 строк ===
+                    // Блок = 8 строк FF + 8 строк 00
+                    // 0x011D
+                    0x21, 0x00, 0x18,        // LXI H, 0x1800  (начало VRAM)
+                    0x06, 0x10,              // MVI B, 16       (16 блоков)
+
+                    // StripeLoop: 0x0123
+                    // --- 8 строк пикселей (FF) ---
+                    0x0E, 0x08,              // MVI C, 8        (8 строк)
+                    // FillRowLoop: 0x0125
+                    0x16, 0x20,              // MVI D, 32       (32 байта на строку)
+                    0x3E, 0xFF,              // MVI A, FF
+                    // FillByteLoop: 0x0129
+                    0x77,                    // MOV M, A
+                    0x23,                    // INX H
+                    0x15,                    // DCR D
+                    0xC2, 0x29, 0x01,        // JNZ FillByteLoop (0x0129)
+                    0x0D,                    // DCR C
+                    0xC2, 0x25, 0x01,        // JNZ FillRowLoop  (0x0125)
+
+                    // --- 8 строк фона (00) ---
+                    0x0E, 0x08,              // MVI C, 8        (8 строк)
+                    // ClearRowLoop: 0x0136
+                    0x16, 0x20,              // MVI D, 32       (32 байта на строку)
+                    0x3E, 0x00,              // MVI A, 00
+                    // ClearByteLoop: 0x013A
+                    0x77,                    // MOV M, A
+                    0x23,                    // INX H
+                    0x15,                    // DCR D
+                    0xC2, 0x3A, 0x01,        // JNZ ClearByteLoop (0x013A)
+                    0x0D,                    // DCR C
+                    0xC2, 0x36, 0x01,        // JNZ ClearRowLoop  (0x0136)
+
+                    // --- следующий блок ---
+                    0x05,                    // DCR B
+                    0xC2, 0x23, 0x01,        // JNZ StripeLoop (0x0123)
+
+                    // === Бесконечный цикл ===
+                    // 0x0147
+                    0xC3, 0x47, 0x01         // JMP 0x0147
+            };
+
+            string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"[ROM] test_graphics.rom создан ({romData.Length} байт) → {path}");
+        }
 
         private void CreateTestGraphicsRom1()
         {
@@ -542,7 +615,7 @@ namespace Vector06cEmulator
             DebugLog($"[ROM] test_graphics.rom создан ({romData.Length} байт) → {path}");
         }
 
-        private void CreateTestGraphicsRom()
+        private void CreateTestGraphicsRom2()
         {
             // Простой тестовый ROM - рисует полосы и шахматку
             byte[] romData = new byte[]
