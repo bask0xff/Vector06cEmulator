@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -128,7 +129,8 @@ namespace Vector06cEmulator
             Controls.Add(statusLabel);
 
             CreateTestGraphicsRom();
-
+            //CreateFullBlueRom();
+            //CreateSnakeRom();
 
             // Таймер для обновления экрана (50 Гц)
             screenTimer = new Timer();
@@ -136,6 +138,112 @@ namespace Vector06cEmulator
             screenTimer.Tick += ScreenTimer_Tick;
         }
 
+        private void CreateSnakeRom()
+        {
+            var code = new List<byte>();
+
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // ==================== ИНИЦИАЛИЗАЦИЯ ====================
+            Emit(0x3E, 0x00, 0xD3, 0x00);     // OUT 00 - чёрный фон
+            Emit(0x3E, 0x01, 0xD3, 0x01);     // OUT 01 - голубой цвет
+            Emit(0x3E, 0x00, 0xD3, 0x10);     // OUT 10 - скролл = 0
+
+            // Очистка видеопамяти
+            Emit(0x21, 0x00, 0x18);           // LXI H, 1800h
+            Emit(0x11, 0x00, 0x20);           // LXI D, 2000h
+            Emit(0xAF);                       // XRA A  (A = 0)
+            ushort clearLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x77, 0x23, 0x1B, 0x7A, 0xB3);
+            Emit(0xC2, (byte)clearLoop, (byte)(clearLoop >> 8)); // JNZ clearLoop
+
+            // Начальная позиция головы
+            Emit(0x3E, 0x40, 0x32, 0x00, 0xC0); // STA 0xC000  X = 64
+            Emit(0x3E, 0x40, 0x32, 0x01, 0xC0); // STA 0xC001  Y = 64
+
+            // ==================== ГЛАВНЫЙ ЦИКЛ ====================
+            ushort mainLoop = (ushort)(0x0100 + code.Count);
+
+            // Рисуем точку (голову)
+            Emit(0x3A, 0x01, 0xC0);           // LDA 0xC001 (Y)
+            Emit(0x47);                       // MOV B, A
+            Emit(0x3A, 0x00, 0xC0);           // LDA 0xC000 (X)
+            Emit(0x4F);                       // MOV C, A
+            Emit(0xCD, 0x50, 0x01);           // CALL PutPixel (будет по адресу ~0x0150)
+
+            // Двигаем вправо
+            Emit(0x3A, 0x00, 0xC0);           // LDA X
+            Emit(0x3C);                       // INR A
+            Emit(0x32, 0x00, 0xC0);           // STA X
+
+            // Простая задержка
+            Emit(0x06, 0x10);                 // MVI B, 16
+            ushort delay = (ushort)(0x0100 + code.Count);
+            Emit(0x0E, 0x00);                 // MVI C, 0
+            ushort delayInner = (ushort)(0x0100 + code.Count);
+            Emit(0x0D);                       // DCR C
+            Emit(0xC2, (byte)delayInner, (byte)(delayInner >> 8));
+            Emit(0x05);                       // DCR B
+            Emit(0xC2, (byte)delay, (byte)(delay >> 8));
+
+            Emit(0xC3, (byte)mainLoop, (byte)(mainLoop >> 8)); // JMP mainLoop
+
+            // ==================== PutPixel ====================
+            ushort putPixelAddr = (ushort)(0x0100 + code.Count);
+
+            Emit(0x78);                       // MOV A, B     ; Y
+            Emit(0x07, 0x07, 0x07);           // RLC x3
+            Emit(0x80);                       // ADD B        ; Y*8
+            Emit(0x47);                       // MOV B, A
+            Emit(0x79);                       // MOV A, C     ; X
+            Emit(0x0F, 0x0F, 0x0F);           // RRC x3
+            Emit(0xB0);                       // ORA B
+            Emit(0xC6, 0x18);                 // ADI 0x18     ; грубо 0x1800
+            Emit(0x6F);                       // MOV L, A
+            Emit(0x26, 0x18);                 // MVI H, 0x18
+            Emit(0x3E, 0xFF, 0x77);           // MVI A,FF / MOV M,A
+            Emit(0xC9);                       // RET
+
+            var romData = code.ToArray();
+
+            string path = Path.Combine(GetProjectPath(), "snake.rom");
+            File.WriteAllBytes(path, romData);
+
+            DebugLog($"Snake ROM создан: {romData.Length} байт");
+            DebugLog($"MainLoop = 0x{mainLoop:X4}, PutPixel = 0x{putPixelAddr:X4}");
+        }
+
+        private void CreateFullBlueRom()
+        {
+            byte[] romData = new byte[]
+            {
+                // 0x0100 — Инициализация
+                0x3E, 0x00, 0xD3, 0x00,     // MVI A,00 / OUT 00  → чёрная рамка
+                0x3E, 0x01, 0xD3, 0x01,     // MVI A,01 / OUT 01  → голубой цвет пикселей (индекс 1)
+                0x3E, 0x00, 0xD3, 0x10,     // MVI A,00 / OUT 10  → скролл = 0
+
+                // Заполняем всю видеопамять 0xFF (все пиксели включены)
+                0x21, 0x00, 0x18,           // LXI H, 1800h
+                0x11, 0x00, 0x20,           // LXI D, 2000h  (8192 байта = 0x2000)
+                0x3E, 0xFF,                 // MVI A, FFh
+
+                // FillLoop:
+                0x77,                       // MOV M, A
+                0x23,                       // INX H
+                0x1B,                       // DCX D
+                0x7A, 0xB3,                 // MOV A, D / ORA E
+                0xC2, 0x0F, 0x01,           // JNZ FillLoop   (адрес 0x010F)
+
+                // Бесконечный цикл
+                0xC3, 0x1B, 0x01            // JMP $ (0x011B)
+            };
+
+            string path = Path.Combine(GetProjectPath(), "full_blue.rom");
+            File.WriteAllBytes(path, romData);
+
+            DebugLog($"[ROM] full_blue.rom создан ({romData.Length} байт) → {path}");
+            DebugLog("Этот ROM должен залить весь экран голубым цветом");
+        }
 
         private void ResetButton_Click(object? sender, EventArgs e)
         {
@@ -291,11 +399,11 @@ namespace Vector06cEmulator
         {
             if (debugTextBox.InvokeRequired)
             {
-                debugTextBox.Invoke(new Action(() => debugTextBox.AppendText(message + "\n")));
+                debugTextBox.Invoke(new Action(() => debugTextBox.AppendText(message + "\r\n")));
             }
             else
             {
-                debugTextBox.AppendText(message + "\n");
+                debugTextBox.AppendText(message + "\r\n");
             }
             debugTextBox.ScrollToCaret();
         }
@@ -419,21 +527,16 @@ namespace Vector06cEmulator
         {
             if (!isRunning)
             {
-                //emulator.LoadMonitors(
-                //    GetRomPath("Vector06C.rom"),
-                //    GetRomPath("MonitorF.rom")
-                //);
-                emulator.LoadRom(GetRomPath("test_graphics.rom"), 0x0100);
-
-                emulator.Cpu.PC = 0x0100;   // сразу на ROM
+                emulator.LoadRom(GetRomPath("test_graphics-chess.rom"), 0x0100);
+                //emulator.LoadRom(GetRomPath("test_chess.rom"), 0x0100);
+                emulator.Cpu.PC = 0x0100;
                 emulator.Cpu.SP = 0xC000;
 
                 emulator.Video.SetBorderColor(0x00);
-                emulator.Video.SetPaletteColor(0x03);
+                emulator.Video.SetPaletteColor(0x01);   // голубой
 
                 isRunning = true;
                 screenTimer.Start();
-
                 statusLabel.Text = "Статус: Запущен";
                 runButton.Enabled = false;
                 pauseButton.Enabled = true;
@@ -491,6 +594,7 @@ namespace Vector06cEmulator
 
         private string GetRomPath(string filename)
         {
+            DebugLog("Loading " + filename);
             // Сначала пробуем в папке вывода
             string path1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, filename);
             if (File.Exists(path1))
@@ -528,63 +632,63 @@ namespace Vector06cEmulator
 
             byte[] rom = new byte[]
             {
-        // 0x0100 — Инициализация портов
-        0x3E, 0x00, 0xD3, 0x00,    // MVI A,00 / OUT 00  (фон = чёрный)
-        0x3E, 0x03, 0xD3, 0x01,    // MVI A,03 / OUT 01  (цвет = голубой)
-        0x3E, 0x00, 0xD3, 0x10,    // MVI A,00 / OUT 10  (скролл = 0)
+                // 0x0100 — Инициализация портов
+                0x3E, 0x00, 0xD3, 0x00,    // MVI A,00 / OUT 00  (фон = чёрный)
+                0x3E, 0x03, 0xD3, 0x01,    // MVI A,03 / OUT 01  (цвет = голубой)
+                0x3E, 0x00, 0xD3, 0x10,    // MVI A,00 / OUT 10  (скролл = 0)
 
-        // 0x010C — Начало DrawBoard
-        0x21, 0x00, 0x18,          // LXI H, 0x1800   (H=начало VRAM)
+                // 0x010C — Начало DrawBoard
+                0x21, 0x00, 0x18,          // LXI H, 0x1800   (H=начало VRAM)
 
-        // B = счётчик рядов клеток (8 рядов по 8 строк + 8 рядов)
-        // Используем D как "номер ряда" для выбора паттерна
-        // D=0 → чётный ряд (AA/55), D=1 → нечётный (55/AA)
-        0x16, 0x00,                // MVI D, 0   (номер ряда, чётность)
-        0x06, 0x20,                // MVI B, 32  (32 ряда по 8 строк = 256 строк)
+                // B = счётчик рядов клеток (8 рядов по 8 строк + 8 рядов)
+                // Используем D как "номер ряда" для выбора паттерна
+                // D=0 → чётный ряд (AA/55), D=1 → нечётный (55/AA)
+                0x16, 0x00,                // MVI D, 0   (номер ряда, чётность)
+                0x06, 0x20,                // MVI B, 32  (32 ряда по 8 строк = 256 строк)
 
-        // RowLoop: 0x0114
-        // Выбираем паттерн: чётный ряд → C=0xAA, нечётный → C=0x55
-        0x7A,                      // MOV A, D
-        0xE6, 0x01,                // ANI 0x01   (проверяем бит 0)
-        0xCA, 0x1C, 0x01,          // JZ EvenRow (0x011C)
-        // Нечётный ряд:
-        0x0E, 0x55,                // MVI C, 0x55
-        0xC3, 0x1E, 0x01,          // JMP AfterPat (0x011E)
-        // EvenRow: 0x011C
-        0x0E, 0xAA,                // MVI C, 0xAA
-        // AfterPat: 0x011E
+                // RowLoop: 0x0114
+                // Выбираем паттерн: чётный ряд → C=0xAA, нечётный → C=0x55
+                0x7A,                      // MOV A, D
+                0xE6, 0x01,                // ANI 0x01   (проверяем бит 0)
+                0xCA, 0x1C, 0x01,          // JZ EvenRow (0x011C)
+                // Нечётный ряд:
+                0x0E, 0x55,                // MVI C, 0x55
+                0xC3, 0x1E, 0x01,          // JMP AfterPat (0x011E)
+                // EvenRow: 0x011C
+                0x0E, 0xAA,                // MVI C, 0xAA
+                // AfterPat: 0x011E
 
-        // Рисуем 8 строк текущего ряда
-        0x1E, 0x08,                // MVI E, 8  (8 строк на ряд)
+                // Рисуем 8 строк текущего ряда
+                0x1E, 0x08,                // MVI E, 8  (8 строк на ряд)
 
-        // LineLoop: 0x0120
-        // Рисуем одну строку (32 байта) с чередованием AA/55
-        // Если чётная строка ряда → паттерн C, нечётная → инверсия C
-        // Но для шахматки достаточно: все строки ряда одинаковы,
-        // главное что соседний ряд инвертирован.
-        // Внутри строки: байты чередуем AA 55 AA 55... (дают вертикальные полоски 4px)
-        // Для клеток 8px используем: 0xFF на 4 байта, 0x00 на 4 байта (блоки 32px)
-        // Проще: используем C как паттерн байта для всей строки
+                // LineLoop: 0x0120
+                // Рисуем одну строку (32 байта) с чередованием AA/55
+                // Если чётная строка ряда → паттерн C, нечётная → инверсия C
+                // Но для шахматки достаточно: все строки ряда одинаковы,
+                // главное что соседний ряд инвертирован.
+                // Внутри строки: байты чередуем AA 55 AA 55... (дают вертикальные полоски 4px)
+                // Для клеток 8px используем: 0xFF на 4 байта, 0x00 на 4 байта (блоки 32px)
+                // Проще: используем C как паттерн байта для всей строки
 
-        0x79,                      // MOV A, C   (берём паттерн)
-        0x26, 0x20,                // MVI H_temp... нет, просто заполним 32 байта
+                0x79,                      // MOV A, C   (берём паттерн)
+                0x26, 0x20,                // MVI H_temp... нет, просто заполним 32 байта
 
-        // Заполняем 32 байта: чередуем C и ~C по 4 байта (клетки 32px)
-        // PatInner: запишем 4 байта C, потом 4 байта ~C, повторить 4 раза
+                // Заполняем 32 байта: чередуем C и ~C по 4 байта (клетки 32px)
+                // PatInner: запишем 4 байта C, потом 4 байта ~C, повторить 4 раза
 
-        // Используем регистр для счётчика внутри строки
-        0x26, 0x04,                // ... 
+                // Используем регистр для счётчика внутри строки
+                0x26, 0x04,                // ... 
 
-        // УПРОЩЕНИЕ: для наглядности — вся строка одним байтом-паттерном
-        // (чередование рядов даёт горизонтальные полосы, 
-        //  чередование байт внутри строки даёт вертикальные)
-        // Паттерн C меняем между строками тоже — для шахматки:
-        0x79,                      // MOV A, C
-        0x47,                      // MOV B_save... 
+                // УПРОЩЕНИЕ: для наглядности — вся строка одним байтом-паттерном
+                // (чередование рядов даёт горизонтальные полосы, 
+                //  чередование байт внутри строки даёт вертикальные)
+                // Паттерн C меняем между строками тоже — для шахматки:
+                0x79,                      // MOV A, C
+                0x47,                      // MOV B_save... 
 
-        // Перепишем проще — отдельные регистры:
-        // Уберём всё лишнее
-        0x76,                      // HLT — заглушка, перепишем ниже
+                // Перепишем проще — отдельные регистры:
+                // Уберём всё лишнее
+                0x76,                      // HLT — заглушка, перепишем ниже
             };
 
             // ↑ Этот подход стал запутанным. Пересчитаем с нуля чисто.
@@ -594,151 +698,54 @@ namespace Vector06cEmulator
 
         private void CreateChessRom()
         {
-            // Регистры:
-            //   H:L  — указатель в VRAM
-            //   D    — PAT1 (первые 4 байта блока)
-            //   E    — PAT2 (вторые 4 байта блока)  
-            //   [0xBFFE] — счётчик рядов (в памяти, чтобы не конфликтовать)
-            //   C    — счётчик строк внутри ряда (32)
-            //   B    — счётчик блоков внутри строки (4)
+            var code = new List<byte>();
 
-            var code = new System.Collections.Generic.List<byte>();
+            void Emit(params byte[] bytes) => code.AddRange(bytes);
 
-            ushort BaseAddr = 0x0100;
-            ushort Addr() => (ushort)(BaseAddr + code.Count);
-            void Emit(params byte[] bytes) { foreach (var b in bytes) code.Add(b); }
+            // Инициализация
+            Emit(0x3E, 0x02, 0xD3, 0x00);     // OUT 00 - чёрный фон
+            Emit(0x3E, 0x05, 0xD3, 0x01);     // OUT 01 - голубой цвет (индекс 3 = Cyan)
+            Emit(0x3E, 0x00, 0xD3, 0x10);     // OUT 10 - скролл = 0
 
-            int PlaceholderJZ() { var p = code.Count; Emit(0xCA, 0x00, 0x00); return p; }
-            int PlaceholderJMP() { var p = code.Count; Emit(0xC3, 0x00, 0x00); return p; }
-            int PlaceholderJNZ() { var p = code.Count; Emit(0xC2, 0x00, 0x00); return p; }
-            void Patch(int pos, ushort addr)
-            {
-                code[pos + 1] = (byte)(addr & 0xFF);
-                code[pos + 2] = (byte)(addr >> 8);
-            }
+            Emit(0x21, 0x00, 0x18);           // LXI H, 1800h
 
-            // === Инициализация портов ===
-            Emit(0x3E, 0x00, 0xD3, 0x00);  // MVI A,0 / OUT 0  (фон чёрный)
-            Emit(0x3E, 0x03, 0xD3, 0x01);  // MVI A,3 / OUT 1  (цвет голубой)
-            Emit(0x3E, 0x00, 0xD3, 0x10);  // MVI A,0 / OUT 10 (скролл 0)
+            // === Основной цикл: 256 строк ===
+            Emit(0x16, 0x00);                 // D = 0  (счётчик строк, будет 256 итераций)
 
-            // === Инициализация VRAM-указателя ===
-            Emit(0x21, 0x00, 0x18);         // LXI H, 0x1800
+            ushort rowLoopAddr = (ushort)(0x0100 + code.Count);
 
-            // === Счётчик рядов в памяти [0xBFFE] = 8 ===
-            // (0xBFFE — свободная RAM, ниже стека 0xC000)
-            Emit(0x3E, 0x08);               // MVI A, 8
-            Emit(0x32, 0xFE, 0xBF);         // STA 0xBFFE
+            // Одна строка: 4 блока (FF FF FF FF 00 00 00 00) × 4 = 32 байта
+            Emit(0x06, 0x04);                 // B = 4 блока
 
-            // === Номер ряда [0xBFFF] = 0 (для чётности) ===
-            Emit(0x3E, 0x00);               // MVI A, 0
-            Emit(0x32, 0xFF, 0xBF);         // STA 0xBFFF
+            ushort blockLoopAddr = (ushort)(0x0100 + code.Count);
 
-            // RowLoop:
-            ushort addrRowLoop = Addr();
+            Emit(0x3E, 0xFF);                 // A = FFh
+            for (int i = 0; i < 4; i++) Emit(0x77, 0x23);   // 4 раза (MOV M,A / INX H)
 
-            // Читаем номер ряда, выбираем паттерн
-            Emit(0x3A, 0xFF, 0xBF);         // LDA 0xBFFF  (номер ряда)
-            Emit(0xE6, 0x01);               // ANI 1
-            int jzEven = PlaceholderJZ();   // JZ EvenRow
+            Emit(0x3E, 0x00);                 // A = 00h
+            for (int i = 0; i < 4; i++) Emit(0x77, 0x23);
 
-            // Нечётный ряд: D=0x00, E=0xFF
-            Emit(0x16, 0x00);               // MVI D, 0x00
-            Emit(0x1E, 0xFF);               // MVI E, 0xFF
-            int jmpAP = PlaceholderJMP();   // JMP AfterPat
+            Emit(0x05);                       // DCR B
+            Emit(0xC2, (byte)blockLoopAddr, (byte)(blockLoopAddr >> 8)); // JNZ blockLoop
 
-            // EvenRow:
-            ushort addrEven = Addr();
-            Patch(jzEven, addrEven);
-            Emit(0x16, 0xFF);               // MVI D, 0xFF
-            Emit(0x1E, 0x00);               // MVI E, 0x00
+            // Следующая строка — инвертируем паттерн (чередование рядов)
+            Emit(0x7E);                       // MOV A,M     (берём первый байт текущей строки)
+            Emit(0xEE, 0xFF);                 // XRI FFh
+            Emit(0x32, 0x00, 0x18);           // STA 1800h   (сохраняем для следующей строки)
 
-            // AfterPat:
-            ushort addrAfterPat = Addr();
-            Patch(jmpAP, addrAfterPat);
+            Emit(0x15);                       // DCR D
+            Emit(0xC2, (byte)rowLoopAddr, (byte)(rowLoopAddr >> 8)); // JNZ rowLoop
 
-            // C = 32 (строк на ряд)
-            Emit(0x0E, 0x20);               // MVI C, 32
+            // Бесконечный цикл
+            Emit(0xC3, 0x2E, 0x01);           // JMP $  (0x012E примерно)
 
-            // LineLoop: рисуем одну строку (32 байта = 4 блока по 8 байт)
-            ushort addrLineLoop = Addr();
+            var romData = code.ToArray();
 
-            // B = 4 (блока)
-            Emit(0x06, 0x04);               // MVI B, 4
+            string path = Path.Combine(GetProjectPath(), "test_chess.rom");
+            File.WriteAllBytes(path, romData);
 
-            // BlockLoop: пишем 4 байта D, потом 4 байта E
-            ushort addrBlockLoop = Addr();
-
-            Emit(0x7A);                     // MOV A, D
-            Emit(0x77); Emit(0x23);         // MOV M,A / INX H
-            Emit(0x77); Emit(0x23);
-            Emit(0x77); Emit(0x23);
-            Emit(0x77); Emit(0x23);
-
-            Emit(0x7B);                     // MOV A, E
-            Emit(0x77); Emit(0x23);
-            Emit(0x77); Emit(0x23);
-            Emit(0x77); Emit(0x23);
-            Emit(0x77); Emit(0x23);
-
-            Emit(0x05);                     // DCR B
-            int jnzBlock = PlaceholderJNZ();
-            Patch(jnzBlock, addrBlockLoop); // JNZ BlockLoop
-
-            // DCR C / JNZ LineLoop
-            Emit(0x0D);                     // DCR C
-            int jnzLine = PlaceholderJNZ();
-            Patch(jnzLine, addrLineLoop);   // JNZ LineLoop
-
-            // Увеличиваем номер ряда [0xBFFF]++
-            Emit(0x3A, 0xFF, 0xBF);         // LDA 0xBFFF
-            Emit(0x3C);                     // INR A
-            Emit(0x32, 0xFF, 0xBF);         // STA 0xBFFF
-
-            // Уменьшаем счётчик рядов [0xBFFE]--
-            Emit(0x3A, 0xFE, 0xBF);         // LDA 0xBFFE
-            Emit(0x3D);                     // DCR A
-            Emit(0x32, 0xFE, 0xBF);         // STA 0xBFFE
-            int jnzRow = PlaceholderJNZ();
-            Patch(jnzRow, addrRowLoop);     // JNZ RowLoop
-
-            // === Задержка ~1 сек (3 вложенных цикла) ===
-            ushort addrDelay = Addr();
-            Emit(0x06, 0x08);               // MVI B, 8   (внешний)
-            ushort addrDel1 = Addr();
-            Emit(0x0E, 0x00);               // MVI C, 0   (256 итераций)
-            ushort addrDel2 = Addr();
-            Emit(0x16, 0x00);               // MVI D, 0   (256 итераций)
-            ushort addrDel3 = Addr();
-            Emit(0x15);                     // DCR D
-            int jnzD3 = PlaceholderJNZ(); Patch(jnzD3, addrDel3);
-            Emit(0x0D);                     // DCR C
-            int jnzD2 = PlaceholderJNZ(); Patch(jnzD2, addrDel2);
-            Emit(0x05);                     // DCR B
-            int jnzD1 = PlaceholderJNZ(); Patch(jnzD1, addrDel1);
-
-            // === Инверсия VRAM ===
-            Emit(0x21, 0x00, 0x18);         // LXI H, 0x1800
-            Emit(0x11, 0x00, 0x20);         // LXI D, 0x2000 (8192 байта)
-            ushort addrInv = Addr();
-            Emit(0x7E);                     // MOV A, M
-            Emit(0xEE, 0xFF);               // XRI 0xFF
-            Emit(0x77);                     // MOV M, A
-            Emit(0x23);                     // INX H
-            Emit(0x1B);                     // DCX D
-            Emit(0x7A, 0xB3);               // MOV A,D / ORA E
-            int jnzInv = PlaceholderJNZ(); Patch(jnzInv, addrInv);
-
-            // JMP Delay — анимация мигания
-            int jmpAnim = PlaceholderJMP(); Patch(jmpAnim, addrDelay);
-
-            byte[] romData = code.ToArray();
-            string path = System.IO.Path.Combine(GetProjectPath(), "test_graphics.rom");
-            System.IO.File.WriteAllBytes(path, romData);
-
-            DebugLog($"[ROM] Шахматная доска: {romData.Length} байт → {path}");
-            DebugLog($"[ROM] RowLoop=0x{addrRowLoop:X4} LineLoop=0x{addrLineLoop:X4}");
-            DebugLog($"[ROM] BlockLoop=0x{addrBlockLoop:X4} Delay=0x{addrDelay:X4}");
+            DebugLog($"Chess ROM создан: {romData.Length} байт");
+            DebugLog($"rowLoopAddr = 0x{rowLoopAddr:X4}, blockLoopAddr = 0x{blockLoopAddr:X4}");
         }
 
         private void CreateTestGraphicsRom3()

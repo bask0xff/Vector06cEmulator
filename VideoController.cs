@@ -120,7 +120,8 @@ namespace Vector06cEmulator
                     for (int x = 0; x < ScreenWidth; x++)
                     {
                         int byteOffset = lineBase + (x / 8);
-                        ushort addr = (ushort)(VideoRamStart + byteOffset);
+                        //ushort addr = (ushort)(VideoRamStart + byteOffset);
+                        ushort addr = (ushort)(0x1800 + videoLine * 32 + (x / 8));
 
                         byte pixelByte = _memory.Read(addr);
                         int bitPos = 7 - (x % 8);
