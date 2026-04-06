@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Net;
 using System.Windows.Forms;
 
 namespace Vector06cEmulator
@@ -18,6 +19,7 @@ namespace Vector06cEmulator
         private Timer screenTimer;
         private Bitmap displayBitmap;
         private TextBox debugTextBox;
+        private TextBox programTextBox;
 
         private bool isRunning = false;
 
@@ -91,10 +93,22 @@ namespace Vector06cEmulator
                 ForeColor = Color.FromArgb(0, 255, 0)  // Зелёный как в терминале
             };
 
+            programTextBox = new TextBox
+            {
+                Location = new Point(2, 520),
+                Size = new Size(400, 230),
+                Multiline = true,
+                ScrollBars = ScrollBars.Vertical,
+                ReadOnly = true,
+                Font = new Font("Consolas", 9F),
+                BackColor = Color.DarkBlue,
+                ForeColor = Color.Yellow
+            };
+
             Button loadRomButton = new Button
             {
                 Text = "Загрузить ROM",
-                Location = new Point(10, 490),
+                Location = new Point(10, 470),
                 Size = new Size(120, 30)
             };
             loadRomButton.Click += LoadRealRomButton_Click;
@@ -102,7 +116,7 @@ namespace Vector06cEmulator
             Button resetButton = new Button
             {
                 Text = "Сброс",
-                Location = new Point(310, 490),
+                Location = new Point(310, 470),
                 Size = new Size(80, 30)
             };
             resetButton.Click += ResetButton_Click;
@@ -122,13 +136,14 @@ namespace Vector06cEmulator
             Controls.Add(resetButton);
 
             Controls.Add(debugTextBox);
+            Controls.Add(programTextBox);
             Controls.Add(testButton);
             Controls.Add(pictureBox);
             Controls.Add(runButton);
             Controls.Add(pauseButton);
             Controls.Add(statusLabel);
 
-            CreateTestGraphicsRom();
+            //CreateTestGraphicsRom();
             //CreateFullBlueRom();
             //CreateSnakeRom();
 
@@ -458,37 +473,65 @@ namespace Vector06cEmulator
 
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
-                    try
-                    {
-                        byte[] romData = File.ReadAllBytes(openFileDialog.FileName);
-
-                        // Для Вектор-06Ц программы обычно загружаются по адресу 0x0100
-                        ushort loadAddress = 0x0100;
-
-                        // Если файл имеет заголовок (например, .com или .exe), можно определить адрес
-                        if (openFileDialog.FileName.EndsWith(".com"))
-                            loadAddress = 0x0100;
-                        else if (openFileDialog.FileName.EndsWith(".exe"))
-                            loadAddress = 0x0100; // Для простоты пока так
-
-                        emulator.Memory.Load(romData, loadAddress);
-
-                        // Устанавливаем PC на точку входа
-                        emulator.Cpu.PC = loadAddress;
-                        emulator.Cpu.SP = 0xC000; // Стек в верхней части памяти
-
-                        DebugLog($"Загружен ROM: {Path.GetFileName(openFileDialog.FileName)}");
-                        DebugLog($"Размер: {romData.Length} байт, адрес: 0x{loadAddress:X4}");
-                        DebugLog($"PC установлен на 0x{emulator.Cpu.PC:X4}, SP=0x{emulator.Cpu.SP:X4}");
-
-                        statusLabel.Text = $"Загружен: {Path.GetFileName(openFileDialog.FileName)}";
-                    }
-                    catch (Exception ex)
-                    {
-                        DebugLog($"Ошибка загрузки ROM: {ex.Message}");
-                        statusLabel.Text = "Ошибка загрузки ROM";
-                    }
+                    loadFileRom(openFileDialog.FileName);
                 }
+            }
+        }
+
+        private void loadFileRom(string fileName)
+        {
+            try
+            {
+                byte[] romData = File.ReadAllBytes(fileName);
+
+                // Для Вектор-06Ц программы обычно загружаются по адресу 0x0100
+                ushort loadAddress = 0x0100;
+
+                // Если файл имеет заголовок (например, .com или .exe), можно определить адрес
+                if (fileName.EndsWith(".com"))
+                    loadAddress = 0x0100;
+                else if (fileName.EndsWith(".exe"))
+                    loadAddress = 0x0100; // Для простоты пока так
+
+                emulator.Memory.Load(romData, loadAddress);
+
+                // Устанавливаем PC на точку входа
+                emulator.Cpu.PC = loadAddress;
+                emulator.Cpu.SP = 0xC000; // Стек в верхней части памяти
+
+                DebugLog($"Загружен ROM: {Path.GetFileName(fileName)}");
+                DebugLog($"Размер: {romData.Length} байт, адрес: 0x{loadAddress:X4}");
+                DebugLog($"PC установлен на 0x{emulator.Cpu.PC:X4}, SP=0x{emulator.Cpu.SP:X4}");
+
+                statusLabel.Text = $"Загружен: {Path.GetFileName(fileName)}";
+
+                // показываем содержимое загруженного файла в programTextBox полностью
+                Text = $"Вектор-06Ц Эмулятор - {Path.GetFileName(fileName)}";
+                //programTextBox.Text = BitConverter.ToString(romData).Replace("-", " ");
+                
+                int displayBytes = romData.Length;
+                string hexDump = "";
+                for (int i = 0; i < displayBytes; i += 16)
+                {
+                    string hex = BitConverter.ToString(romData, i, Math.Min(16, displayBytes - i)).Replace("-", " ");
+                    //string ascii = "";
+                    for (int j = 0; j < Math.Min(16, displayBytes - i); j++)
+                    {
+                        byte b = romData[i + j];
+                        //ascii += (b >= 32 && b <= 126) ? (char)b : '.';
+                    }
+                    hexDump += $"{loadAddress + i:X4}: {hex,-48}\r\n";
+                }
+                programTextBox.Text = hexDump;
+
+                Disassembler.Disassemble(romData, emulator.GetCpu().GetMemory(), loadAddress);
+                programTextBox.Text += Disassembler.GetLog();
+
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"Ошибка загрузки ROM: {ex.Message}");
+                statusLabel.Text = "Ошибка загрузки ROM";
             }
         }
 
@@ -527,7 +570,11 @@ namespace Vector06cEmulator
         {
             if (!isRunning)
             {
-                emulator.LoadRom(GetRomPath("test_graphics-chess.rom"), 0x0100);
+                //string filename = GetRomPath("test_graphics-chess.rom");
+                string filename = GetRomPath("interactive.rom");
+                //emulator.LoadRom(GetRomPath("test_graphics-chess.rom"), 0x0100);
+                emulator.LoadRom(filename, 0x0100);
+                loadFileRom(filename);
                 //emulator.LoadRom(GetRomPath("test_chess.rom"), 0x0100);
                 emulator.Cpu.PC = 0x0100;
                 emulator.Cpu.SP = 0xC000;
@@ -567,6 +614,10 @@ namespace Vector06cEmulator
                     break;
                 }
                 emulator.Step();
+
+                //Disassembler.Disassemble(emulator.GetCpu().GetMemory().GetDump(), emulator.GetCpu().GetMemory(), 0x100);
+                //programTextBox.Text += Disassembler.GetLog();
+
             }
 
             // Обновляем экран
@@ -692,9 +743,172 @@ namespace Vector06cEmulator
             };
 
             // ↑ Этот подход стал запутанным. Пересчитаем с нуля чисто.
-            DebugLog("[ROM] Генерирую шахматку...");
+            //DebugLog("[ROM] Генерирую шахматку...");
             CreateChessRom();
+            //CreateSpriteAnimationRom();
+            CreateInteractiveSpriteRom();
         }
+
+
+        private void CreateInteractiveSpriteRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            ushort varX = 0xC000; // X (0-31)
+            ushort varY = 0xC001; // Y (0-255)
+
+            // 1. ИНИЦИАЛИЗАЦИЯ
+            Emit(0x3E, 0x00, 0xD3, 0x00); // Фон черный
+            Emit(0x3E, 0x01, 0xD3, 0x01); // Цвет синий/голубой
+            Emit(0x3E, 0x00, 0xD3, 0x10); // Скролл 0
+
+            // Очистка экрана (0x1800 - 0x37FF)
+            Emit(0x21, 0x00, 0x18, 0x11, 0x00, 0x20, 0xAF);
+            ushort cLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x77, 0x23, 0x1B, 0x7A, 0xB3, 0xC2, (byte)cLoop, (byte)(cLoop >> 8));
+
+            // Начальные координаты
+            Emit(0x3E, 0x0F, 0x32, (byte)varX, (byte)(varX >> 8)); // X = 15
+            Emit(0x3E, 0x80, 0x32, (byte)varY, (byte)(varY >> 8)); // Y = 128
+
+            // 2. ГЛАВНЫЙ ЦИКЛ
+            ushort mainLoop = (ushort)(0x0100 + code.Count);
+
+            // Стираем (C = 0)
+            Emit(0x0E, 0x00);
+            Emit(0xCD, 0x80, 0x01); // Вызов Draw (лежит ниже по 0x0180)
+
+            // Опрос клавиатуры
+            Emit(0x3E, 0xFE, 0xD3, 0x01, 0xDB, 0x01, 0x2F, 0x47); // Читаем в B
+
+            // Проверка влево (бит 1)
+            Emit(0x78, 0xE6, 0x02, 0xCA);
+            int skipLeftIdx = code.Count; Emit(0, 0); // Заполнитель адреса
+            Emit(0x3A, (byte)varX, (byte)(varX >> 8), 0x3D, 0xE6, 0x1F, 0x32, (byte)varX, (byte)(varX >> 8));
+            ushort noLeft = (ushort)(0x0100 + code.Count);
+            code[skipLeftIdx] = (byte)noLeft; code[skipLeftIdx + 1] = (byte)(noLeft >> 8);
+
+            // Проверка вправо (бит 0)
+            Emit(0x78, 0xE6, 0x01, 0xCA);
+            int skipRightIdx = code.Count; Emit(0, 0);
+            Emit(0x3A, (byte)varX, (byte)(varX >> 8), 0x3C, 0xE6, 0x1F, 0x32, (byte)varX, (byte)(varX >> 8));
+            ushort noRight = (ushort)(0x0100 + code.Count);
+            code[skipRightIdx] = (byte)noRight; code[skipRightIdx + 1] = (byte)(noRight >> 8);
+
+            // Рисуем (C = FF)
+            Emit(0x0E, 0xFF);
+            Emit(0xCD, 0x80, 0x01);
+
+            // Пауза
+            Emit(0x11, 0xFF, 0x03);
+            ushort dLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x1B, 0x7A, 0xB3, 0xC2, (byte)dLoop, (byte)(dLoop >> 8));
+
+            Emit(0xC3, (byte)mainLoop, (byte)(mainLoop >> 8));
+
+            // 3. ПОДПРОГРАММА ОТРИСОВКИ (строго по адресу 0x0180)
+            while (code.Count < 0x80) code.Add(0x00);
+
+            // Считаем HL = 0x1800 + Y*32 + X
+            Emit(0x3A, (byte)varY, (byte)(varY >> 8)); // A = Y
+            Emit(0x6F, 0x26, 0x00);           // L=A, H=0 (HL = Y)
+            Emit(0x29, 0x29, 0x29, 0x29, 0x29); // HL = HL * 32 (5 сдвигов влево)
+
+            Emit(0x11, (byte)varX, (byte)(varX >> 8)); // Используем DE как временный адрес переменной X
+            Emit(0x1A);                       // LD A, (DE) -> читаем само значение X
+            Emit(0x5F, 0x16, 0x00);           // E=A, D=0
+            Emit(0x19);                       // HL = HL + DE (теперь HL = Y*32 + X)
+
+            Emit(0x11, 0x00, 0x18);           // DE = 0x1800 (база VRAM)
+            Emit(0x19);                       // HL = HL + DE (финальный адрес в VRAM)
+
+            // Рисуем полоску 8 пикселей высотой
+            Emit(0x06, 0x08);                 // Счетчик строк
+            ushort drawLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x79, 0x77);                 // A = C, (HL) = A
+            Emit(0x11, 0x20, 0x00, 0x19);     // DE = 32, HL = HL + DE (на след. строку)
+            Emit(0x05, 0xC2, (byte)drawLoop, (byte)(drawLoop >> 8));
+            Emit(0xC9);                       // RET
+
+            File.WriteAllBytes(Path.Combine(GetProjectPath(), "interactive.rom"), code.ToArray());
+        }
+
+
+        private void CreateSpriteAnimationRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // Адреса переменных в ОЗУ (выше видеопамяти)
+            ushort varX = 0xC000;
+
+            // 1. ИНИЦИАЛИЗАЦИЯ (0x0100)
+            Emit(0x3E, 0x00, 0xD3, 0x00);     // OUT 00 - черный фон
+            Emit(0x3E, 0x01, 0xD3, 0x01);     // OUT 01 - голубой цвет пикселей
+            Emit(0x3E, 0x00, 0xD3, 0x10);     // OUT 10 - скролл = 0
+
+            // Очистка экрана (заливка 0x00 с 0x1800 по 0x37FF)
+            Emit(0x21, 0x00, 0x18);           // LXI H, 1800h
+            Emit(0x11, 0x00, 0x20);           // LXI D, 2000h (размер VRAM)
+            Emit(0xAF);                       // XRA A (A = 0)
+            ushort clearLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x77, 0x23, 0x1B, 0x7A, 0xB3, 0xC2, (byte)clearLoop, (byte)(clearLoop >> 8));
+
+            // Инициализация координаты X = 0
+            Emit(0xAF);                       // XRA A
+            Emit(0x32, (byte)varX, (byte)(varX >> 8));
+
+            // 2. ГЛАВНЫЙ ЦИКЛ (MainLoop)
+            ushort mainLoop = (ushort)(0x0100 + code.Count);
+
+            // --- Стираем старый спрайт (пишем 0x00) ---
+            Emit(0x0E, 0x00);                 // MVI C, 00h (цвет стирания)
+            Emit(0xCD, 0x50, 0x01);           // CALL DrawSprite (адрес подпрограммы ниже)
+
+            // --- Двигаем координату ---
+            Emit(0x3A, (byte)varX, (byte)(varX >> 8)); // LDA varX
+            Emit(0x3C);                       // INR A (X++)
+            Emit(0xE6, 0x1F);                 // ANI 1Fh (ограничение 32 байта, т.к. 256/8=32)
+            Emit(0x32, (byte)varX, (byte)(varX >> 8)); // STA varX
+
+            // --- Рисуем новый спрайт (пишем 0xFF) ---
+            Emit(0x0E, 0xFF);                 // MVI C, FFh (закрашенный спрайт)
+            Emit(0xCD, 0x50, 0x01);           // CALL DrawSprite
+
+            // --- Большая задержка ---
+            Emit(0x06, 0x40);                 // MVI B, 40h
+            ushort delayOuter = (ushort)(0x0100 + code.Count);
+            Emit(0x21, 0x00, 0x00);           // LXI H, 0000h
+            ushort delayInner = (ushort)(0x0100 + code.Count);
+            Emit(0x2B, 0x7C, 0xB5, 0xC2, (byte)delayInner, (byte)(delayInner >> 8)); // DCX H / MOV A,H / ORA L / JNZ
+            Emit(0x05, 0xC2, (byte)delayOuter, (byte)(delayOuter >> 8)); // DCR B / JNZ
+
+            Emit(0xC3, (byte)mainLoop, (byte)(mainLoop >> 8)); // JMP MainLoop
+
+            // 3. ПОДПРОГРАММА DrawSprite (0x0150)
+            // Рисует блок 8x8 по адресу: 0x1800 + (Y * 32) + X_byte
+            // Для простоты возьмем Y = 120 (середина экрана)
+            // 120 * 32 = 3840 (0x0F00). Адрес = 0x1800 + 0x0F00 = 0x2700
+            while (code.Count < 0x50) code.Add(0x00); // Выравнивание до 0x0150
+
+            Emit(0x3A, (byte)varX, (byte)(varX >> 8)); // LDA varX
+            Emit(0x5F, 0x16, 0x27);           // MOV E,A / MVI D, 27h (DE = адрес в VRAM)
+            Emit(0x06, 0x08);                 // MVI B, 8 (8 строк высоты)
+
+            ushort drawLineLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x79);                       // MOV A, C (цвет из регистра C)
+            Emit(0x12);                       // STAX D (запись в VRAM)
+            Emit(0xEB, 0x21, 0x20, 0x00, 0x19, 0xEB); // XCHG / LXI H,32 / DAD D / XCHG (DE += 32)
+            Emit(0x05, 0xC2, (byte)drawLineLoop, (byte)(drawLineLoop >> 8)); // DCR B / JNZ
+            Emit(0xC9);                       // RET
+
+            var romData = code.ToArray();
+            string path = Path.Combine(GetProjectPath(), "sprite_anim.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"Анимация создана: {path}");
+        }
+
 
         private void CreateChessRom()
         {

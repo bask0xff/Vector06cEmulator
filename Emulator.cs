@@ -11,6 +11,8 @@ namespace Vector06cEmulator
         public readonly IOBus IOBus;
         public readonly Cpu8080 Cpu;
 
+        public Cpu8080 GetCpu() => Cpu;  
+
         public Action<string> LogCallback { get; set; }
 
         private void Log(string msg) => LogCallback?.Invoke(msg);

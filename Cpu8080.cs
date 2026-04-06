@@ -14,6 +14,8 @@ namespace Vector06cEmulator
 
         private IOBus ioBus;
 
+        public Memory GetMemory() => memory;
+
         public Cpu8080(Memory memory, IOBus ioBus)
         {
             this.memory = memory;

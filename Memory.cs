@@ -33,5 +33,12 @@ namespace Vector06cEmulator
         {
             Array.Copy(data, 0, mem, start, data.Length);
         }
+
+        public byte[] GetDump()
+        {
+            byte[] dump = new byte[mem.Length];
+            Array.Copy(mem, dump, mem.Length);
+            return dump;
+        }
     }
 }
