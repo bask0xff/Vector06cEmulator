@@ -29,6 +29,11 @@ namespace Vector06cEmulator
             bitmap = new Bitmap(ScreenWidth, ScreenHeight, PixelFormat.Format32bppArgb);
         }
 
+        public void MarkScreenDirty()
+        {
+            screenDirty = true;
+        }
+
         private void InitializePalette()
         {
             // Стандартная палитра Вектор-06Ц
@@ -95,40 +100,39 @@ namespace Vector06cEmulator
             }
         }
 
-        // Принудительное обновление экрана
         public void UpdateScreen()
         {
             if (!screenDirty) return;
 
-            var bitmapData = bitmap.LockBits(
-                new Rectangle(0, 0, ScreenWidth, ScreenHeight),
-                ImageLockMode.WriteOnly,
-                PixelFormat.Format32bppArgb);
+            var bitmapData = bitmap.LockBits(new Rectangle(0, 0, ScreenWidth, ScreenHeight),
+                ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
 
             unsafe
             {
                 uint* ptr = (uint*)bitmapData.Scan0.ToPointer();
-                uint borderColor32 = (uint)ColorToArgb(palette[borderColor]);
-                uint pixelColor32 = (uint)ColorToArgb(palette[paletteIndex]);
+
+                uint border = (uint)ColorToArgb(palette[borderColor]);
 
                 for (int y = 0; y < ScreenHeight; y++)
                 {
-                    // Применяем скроллинг
-                    int videoLine = (y + scrollOffset) % ScreenHeight;
-                    int lineBase = videoLine * 32;
+                    int videoY = (y + scrollOffset) & 0xFF;           // скроллинг по модулю 256
+                    int lineAddr = VideoRamStart + videoY * 32;
 
-                    for (int x = 0; x < ScreenWidth; x++)
+                    for (int x = 0; x < ScreenWidth; x += 8)          // по 8 пикселей за раз
                     {
-                        int byteOffset = lineBase + (x / 8);
-                        //ushort addr = (ushort)(VideoRamStart + byteOffset);
-                        ushort addr = (ushort)(0x1800 + videoLine * 32 + (x / 8));
+                        byte pixelByte = _memory.Read((ushort)(lineAddr + (x >> 3)));
 
-                        byte pixelByte = _memory.Read(addr);
-                        int bitPos = 7 - (x % 8);
-                        bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
+                        // Важно: многие программы меняют цвет через OUT 01h динамически,
+                        // но пока берём текущий paletteIndex
+                        uint ink = (uint)ColorToArgb(palette[paletteIndex]);
 
-                        uint color = pixelOn ? pixelColor32 : borderColor32;
-                        ptr[y * ScreenWidth + x] = color;
+                        for (int b = 0; b < 8; b++)
+                        {
+                            bool on = (pixelByte & (0x80 >> b)) != 0;   // бит 7 = самый левый пиксель
+                            uint color = on ? ink : border;
+                            int px = x + b;
+                            ptr[y * ScreenWidth + px] = color;
+                        }
                     }
                 }
             }

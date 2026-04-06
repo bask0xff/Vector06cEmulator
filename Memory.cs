@@ -22,10 +22,10 @@ namespace Vector06cEmulator
         {
             mem[addr] = value;
 
-            // Зеркалирование в видеопамять
+            // Уведомляем видеоконтроллер об изменении видеопамяти
             if (addr >= 0x1800 && addr <= 0x37FF && _video != null)
             {
-                //_video.DirectWriteVideoRam(addr, value);   // новый метод, см. ниже
+                _video.MarkScreenDirty();     
             }
         }
 

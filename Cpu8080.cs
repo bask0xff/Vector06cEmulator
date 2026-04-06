@@ -28,7 +28,7 @@ namespace Vector06cEmulator
 
             ushort oldPC = PC;
 
-            //Disassembler.Disassemble(memory, oldPC); 
+            Disassembler.Disassemble(null, memory, oldPC); 
 
             byte opcode = memory.Read(PC++);
 
