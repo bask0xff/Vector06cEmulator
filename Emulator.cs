@@ -99,16 +99,39 @@ namespace Vector06cEmulator
         {
             var lines = new[]
             {
-            "═══════════════════════════════",
-            "        CPU STATE              ",
-            "═══════════════════════════════",
-            $"  A={Cpu.A:X2}  B={Cpu.B:X2}  C={Cpu.C:X2}",
-            $"  D={Cpu.D:X2}  E={Cpu.E:X2}",
-            $"  H={Cpu.H:X2}  L={Cpu.L:X2}",
-            $"  SP={Cpu.SP:X4}  PC={Cpu.PC:X4}",
-            $"  Z={Cpu.Z} S={Cpu.S} CY={Cpu.CY} P={Cpu.P} AC={Cpu.AC}",
-            $"  Halted={Cpu.Halted}  IFF={Cpu.IFF}",
-            "═══════════════════════════════"
+//            "═══════════════════════════════",
+//            "        CPU STATE              ",
+//            "═══════════════════════════════",
+//            $"  A={Cpu.A:X2}  B={Cpu.B:X2}  C={Cpu.C:X2}",
+//            $"  D={Cpu.D:X2}  E={Cpu.E:X2}",
+//            $"  H={Cpu.H:X2}  L={Cpu.L:X2}",
+//            $"  SP={Cpu.SP:X4}  PC={Cpu.PC:X4}",
+//            $"  Z={Cpu.Z} S={Cpu.S} CY={Cpu.CY} P={Cpu.P} AC={Cpu.AC}",
+//            $"  Halted={Cpu.Halted}  IFF={Cpu.IFF}",
+//            "═══════════════════════════════"
+
+            ("\n═══════════════════════════════"),
+            ("        EXECUTION RESULTS "),
+            ("═══════════════════════════════"),
+            ("REGISTERS:"),
+            ($"A  = {Cpu.A:X2} ({Cpu.A})"),
+            ($"B  = {Cpu.B:X2} ({Cpu.B})"),
+            ($"C  = {Cpu.C:X2} ({Cpu.C})"),
+            ($"D  = {Cpu.D:X2} ({Cpu.D})"),
+            ($"H  = {Cpu.H:X2} ({Cpu.H})"),
+            ($"L  = {Cpu.L:X2} ({Cpu.L})"),
+            ($"SP = {Cpu.SP:X4}"),
+            ($"PC = {Cpu.PC:X4}"),
+            ("───────────────────────────────"),
+            ("FLAGS:"),
+            ($"Z={Cpu.Z} S={Cpu.S} CY={Cpu.CY} P={Cpu.P} AC={Cpu.AC}"),
+            ("───────────────────────────────"),
+            ("MEMORY:"),
+            ($"  mem[8000] = {Memory.Read(0x8000):X2} ({Memory.Read(0x8000)})"),
+            ($"  mem[8001] = {Memory.Read(0x8001):X2} ({Memory.Read(0x8001)})"),
+            ($"  mem[8002] = {Memory.Read(0x8002):X2} ({Memory.Read(0x8002)})"),
+            ("═══════════════════════════════"),
+
         };
             foreach (var l in lines) Log(l);
         }

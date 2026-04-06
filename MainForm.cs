@@ -81,8 +81,8 @@ namespace Vector06cEmulator
 
             debugTextBox = new TextBox
             {
-                Location = new Point(10, 480),
-                Size = new Size(760, 250),
+                Location = new Point(400, 10),
+                Size = new Size(380, 750),
                 Multiline = true,
                 ScrollBars = ScrollBars.Vertical,
                 ReadOnly = true,
@@ -94,7 +94,7 @@ namespace Vector06cEmulator
             Button loadRomButton = new Button
             {
                 Text = "Загрузить ROM",
-                Location = new Point(360, 410),
+                Location = new Point(10, 490),
                 Size = new Size(120, 30)
             };
             loadRomButton.Click += LoadRealRomButton_Click;
@@ -102,7 +102,7 @@ namespace Vector06cEmulator
             Button resetButton = new Button
             {
                 Text = "Сброс",
-                Location = new Point(490, 410),
+                Location = new Point(310, 490),
                 Size = new Size(80, 30)
             };
             resetButton.Click += ResetButton_Click;
