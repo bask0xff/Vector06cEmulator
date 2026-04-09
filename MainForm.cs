@@ -130,7 +130,16 @@ namespace Vector06cEmulator
                     statusLabel.Text = $"Статус: Запущен | PC={emulator.Cpu.PC:X4} | A={emulator.Cpu.A:X2} | HALT={emulator.Cpu.Halted}";
                 }
             };
-            statusTimer.Start();
+
+            Button diagnosticButton = new Button
+            {
+                Text = "Диагностика",
+                Location = new Point(310, 410),
+                Size = new Size(100, 30)
+            };
+
+            diagnosticButton.Click += CheckVideoMemoryButton_Click;
+            Controls.Add(diagnosticButton);
 
             Controls.Add(loadRomButton);
             Controls.Add(resetButton);
@@ -143,14 +152,179 @@ namespace Vector06cEmulator
             Controls.Add(pauseButton);
             Controls.Add(statusLabel);
 
+
+            CreateWorkingTestRom();
+            CreateMinimalTestRom();
+            //CreateDiagnosticRom();
+            //CreateSimpleHelloWorldRom();
+            
             //CreateTestGraphicsRom();
             //CreateFullBlueRom();
             //CreateSnakeRom();
+
+            statusTimer.Start();
 
             // Таймер для обновления экрана (50 Гц)
             screenTimer = new Timer();
             screenTimer.Interval = 20; // 50 Гц
             screenTimer.Tick += ScreenTimer_Tick;
+        }
+
+        private void CreateDiagnosticRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // Инициализация
+            Emit(0x3E, 0x00, 0xD3, 0x00);     // Чёрный фон
+            Emit(0x3E, 0x03, 0xD3, 0x01);     // Голубой цвет пикселей
+            Emit(0x3E, 0x00, 0xD3, 0x10);     // Скроллинг 0
+
+            // Тест 1: Рисуем вертикальную линию (X=100) через всю высоту
+            Emit(0x21, 0x00, 0x18);           // LXI H, 1800h
+            Emit(0x01, 0x00, 0x20);           // LXI B, 2000h (8192)
+            Emit(0xAF);                       // XRA A (A=0)
+
+            // Очистка
+            ushort clearLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x77, 0x23, 0x0B, 0x78, 0xB1, 0xC2, (byte)clearLoop, (byte)(clearLoop >> 8));
+
+            // Рисуем вертикальную линию в X=100
+            // Адрес = 0x1800 + Y*32 + 12 (т.к. 100/8 = 12.5 -> байт 12, бит 4)
+            Emit(0x06, 0x00);                 // MVI B, 0 (счётчик Y)
+            ushort vertLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x78);                       // MOV A, B (Y)
+            Emit(0x07, 0x07, 0x07);           // RLC x3 (умножаем на 8)
+            Emit(0x80);                       // ADD B (Y*9?)
+                                              // Упростим: используем HL = 0x1800 + Y*32
+            Emit(0x21, 0x00, 0x18);           // LXI H, 1800h
+            Emit(0x78, 0x07, 0x07, 0x07);     // MOV A,B / RLC x3
+            Emit(0x85);                       // ADD L
+            Emit(0x6F);                       // MOV L, A
+                                              // Добавляем 12 (смещение байта для X=100)
+            Emit(0x7D, 0xC6, 0x0C, 0x6F);     // MOV A,L / ADI 12 / MOV L, A
+
+            // Устанавливаем бит 4 (16) в байте
+            Emit(0x7E, 0xF6, 0x10, 0x77);     // MOV A,M / ORI 10h / MOV M,A
+
+            Emit(0x04);                       // INR B
+            Emit(0x78, 0xFE, 0x00, 0xC2);     // MOV A,B / CPI 0 / JNZ (B<256)
+            Emit((byte)vertLoop, (byte)(vertLoop >> 8));
+
+            // Бесконечный цикл
+            Emit(0xC3, 0x00, 0x01);
+
+            var romData = code.ToArray();
+            string path = Path.Combine(GetProjectPath(), "diagnostic.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"Diagnostic ROM создан: {romData.Length} байт → {path}");
+        }
+
+
+        private void CreateSimpleHelloWorldRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // ============================================
+            // ПРОСТАЯ ПРОГРАММА "HELLO WORLD!"
+            // Рисует точки в видеопамяти, формируя текст
+            // ============================================
+
+            // Инициализация видеорежима
+            Emit(0x3E, 0x00, 0xD3, 0x00);     // MVI A,00 / OUT 00 - чёрный фон
+            Emit(0x3E, 0x03, 0xD3, 0x01);     // MVI A,03 / OUT 01 - голубой/циан цвет
+            Emit(0x3E, 0x00, 0xD3, 0x10);     // MVI A,00 / OUT 10 - скроллинг 0
+
+            // Очистка видеопамяти
+            Emit(0x21, 0x00, 0x18);           // LXI H, 1800h
+            Emit(0x01, 0x00, 0x20);           // LXI B, 2000h (8192 байта)
+            Emit(0xAF);                       // XRA A (A=0)
+
+            ushort clearLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x77);                       // MOV M, A
+            Emit(0x23);                       // INX H
+            Emit(0x0B);                       // DCX B
+            Emit(0x78, 0xB1);                 // MOV A,B / ORA C
+            Emit(0xC2, (byte)clearLoop, (byte)(clearLoop >> 8));
+
+            // === РИСУЕМ ТЕКСТ "HELLO" (8x8 пикселей, простая матрица) ===
+
+            // Буква H (позиция X=40, Y=100)
+            // Адрес: 0x1800 + 100*32 + 40/8 = 0x1800 + 3200 + 5 = 0x1800 + 0xC80 + 5 = 0x2485
+            Emit(0x21, 0x85, 0x24);           // LXI H, 0x2485 (адрес начала буквы H)
+            Emit(0x36, 0x81);                 // MVI M, 81h (10000001)
+            Emit(0x2C, 0x36, 0x81);           // INR L / MVI M, 81h (следующая строка)
+            Emit(0x2C, 0x36, 0x81);           // INR L / MVI M, 81h
+            Emit(0x2C, 0x36, 0xFF);           // INR L / MVI M, FFh (11111111)
+            Emit(0x2C, 0x36, 0x81);           // INR L / MVI M, 81h
+            Emit(0x2C, 0x36, 0x81);           // INR L / MVI M, 81h
+            Emit(0x2C, 0x36, 0x81);           // INR L / MVI M, 81h
+            Emit(0x2C, 0x36, 0x81);           // INR L / MVI M, 81h
+
+            // Буква E (позиция X=56, Y=100)
+            // Адрес: 0x1800 + 100*32 + 56/8 = 0x1800 + 3200 + 7 = 0x2487
+            Emit(0x21, 0x87, 0x24);           // LXI H, 0x2487
+            Emit(0x36, 0xFE);                 // MVI M, FEh (11111110)
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0xF8);           // INR L / MVI M, F8h (11111000)
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0xFE);           // INR L / MVI M, FEh
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+
+            // Буква L (позиция X=72, Y=100)
+            // Адрес: 0x1800 + 100*32 + 72/8 = 0x1800 + 3200 + 9 = 0x2489
+            Emit(0x21, 0x89, 0x24);           // LXI H, 0x2489
+            Emit(0x36, 0x80);                 // MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0xFE);           // INR L / MVI M, FEh
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+
+            // Буква L (позиция X=88, Y=100) - вторая L
+            // Адрес: 0x1800 + 100*32 + 88/8 = 0x1800 + 3200 + 11 = 0x248B
+            Emit(0x21, 0x8B, 0x24);           // LXI H, 0x248B
+            Emit(0x36, 0x80);                 // MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+            Emit(0x2C, 0x36, 0xFE);           // INR L / MVI M, FEh
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+
+            // Буква O (позиция X=104, Y=100)
+            // Адрес: 0x1800 + 100*32 + 104/8 = 0x1800 + 3200 + 13 = 0x248D
+            Emit(0x21, 0x8D, 0x24);           // LXI H, 0x248D
+            Emit(0x36, 0x7C);                 // MVI M, 7Ch (01111100)
+            Emit(0x2C, 0x36, 0x82);           // INR L / MVI M, 82h (10000010)
+            Emit(0x2C, 0x36, 0x82);           // INR L / MVI M, 82h
+            Emit(0x2C, 0x36, 0x82);           // INR L / MVI M, 82h
+            Emit(0x2C, 0x36, 0x82);           // INR L / MVI M, 82h
+            Emit(0x2C, 0x36, 0x82);           // INR L / MVI M, 82h
+            Emit(0x2C, 0x36, 0x7C);           // INR L / MVI M, 7Ch
+            Emit(0x2C, 0x36, 0x80);           // INR L / MVI M, 80h
+
+            // === БЕСКОНЕЧНЫЙ ЦИКЛ ===
+            Emit(0xC3, 0x00, 0x01);           // JMP 0x0100
+
+            var romData = code.ToArray();
+            string path = Path.Combine(GetProjectPath(), "hello_simple.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"Simple Hello ROM создан: {romData.Length} байт → {path}");
+
+            // Выводим дамп для отладки
+            DebugLog("ROM Contents:");
+            for (int i = 0; i < romData.Length; i += 16)
+            {
+                string hex = BitConverter.ToString(romData, i, Math.Min(16, romData.Length - i)).Replace("-", " ");
+                DebugLog($"0x{(0x0100 + i):X4}: {hex}");
+            }
         }
 
         private void CreateSnakeRom()
@@ -410,6 +584,113 @@ namespace Vector06cEmulator
             DebugLog($"[ROM] test_graphics.rom обновлён ({romData.Length} байт) → {path}");
         }
 
+        private void CreateWorkingTestRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // ============================================
+            // ПРОСТАЯ ТЕСТОВАЯ ПРОГРАММА
+            // Рисует горизонтальные полосы на экране
+            // ============================================
+
+            // 0x0100: Инициализация портов
+            Emit(0x3E, 0x00);        // MVI A, 0
+            Emit(0xD3, 0x00);        // OUT 0x00 - чёрный фон
+
+            Emit(0x3E, 0x03);        // MVI A, 3
+            Emit(0xD3, 0x01);        // OUT 0x01 - голубой цвет
+
+            Emit(0x3E, 0x00);        // MVI A, 0
+            Emit(0xD3, 0x10);        // OUT 0x10 - скроллинг 0
+
+            // 0x010C: Заполняем видеопамять паттерном 0xFF (все пиксели включены)
+            Emit(0x21, 0x00, 0x18);  // LXI H, 0x1800
+            Emit(0x01, 0x00, 0x20);  // LXI B, 0x2000 (8192 байта)
+            Emit(0x3E, 0xFF);        // MVI A, 0xFF
+
+            ushort fillLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x77);              // MOV M, A
+            Emit(0x23);              // INX H
+            Emit(0x0B);              // DCX B
+            Emit(0x78);              // MOV A, B
+            Emit(0xB1);              // ORA C
+            Emit(0xC2, (byte)fillLoop, (byte)(fillLoop >> 8)); // JNZ fillLoop
+
+            // 0x011E: Бесконечный цикл
+            Emit(0xC3, 0x1E, 0x01);  // JMP 0x011E
+
+            var romData = code.ToArray();
+            string path = Path.Combine(GetProjectPath(), "working_test.rom");
+            File.WriteAllBytes(path, romData);
+
+            DebugLog($"=== WORKING TEST ROM ===");
+            DebugLog($"Size: {romData.Length} bytes");
+            DebugLog($"Path: {path}");
+            DebugLog("Expected: Full blue screen");
+
+            // Выводим дамп для верификации
+            DebugLog("\nROM dump:");
+            for (int i = 0; i < romData.Length; i += 8)
+            {
+                string hex = BitConverter.ToString(romData, i, Math.Min(8, romData.Length - i)).Replace("-", " ");
+                DebugLog($"0x{(0x0100 + i):X4}: {hex}");
+            }
+        }
+
+
+        private void CreateMinimalTestRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // Минимальная программа - просто меняет цвет фона
+            Emit(0x3E, 0x07);        // MVI A, 7 (белый)
+            Emit(0xD3, 0x00);        // OUT 0x00 - белый фон
+
+            Emit(0x3E, 0x04);        // MVI A, 4 (красный)
+            Emit(0xD3, 0x01);        // OUT 0x01 - красные пиксели
+
+            // Бесконечный цикл
+            Emit(0xC3, 0x06, 0x01);  // JMP 0x0106
+
+            var romData = code.ToArray();
+            string path = Path.Combine(GetProjectPath(), "minimal_test.rom");
+            File.WriteAllBytes(path, romData);
+
+            DebugLog($"Minimal test ROM created: {path}");
+            DebugLog("Expected: White background, red pixels (no video RAM writes)");
+        }
+
+        private void VerifyRomLoaded()
+        {
+            DebugLog("\n=== VERIFYING ROM LOADED ===");
+            DebugLog($"PC = 0x{emulator.Cpu.PC:X4}");
+            DebugLog($"SP = 0x{emulator.Cpu.SP:X4}");
+
+            // Показываем первые 32 байта памяти по адресу 0x0100
+            DebugLog("\nFirst 32 bytes at 0x0100:");
+            for (int i = 0; i < 32; i += 16)
+            {
+                string hex = "";
+                for (int j = 0; j < 16; j++)
+                {
+                    hex += $"{emulator.Memory.Read((ushort)(0x0100 + i + j)):X2} ";
+                }
+                DebugLog($"0x{(0x0100 + i):X4}: {hex}");
+            }
+
+            // Проверяем, что видеопамять чиста
+            int nonZero = 0;
+            for (int i = 0x1800; i <= 0x181F; i++)
+            {
+                if (emulator.Memory.Read((ushort)i) != 0)
+                    nonZero++;
+            }
+            DebugLog($"\nNon-zero bytes in first 32 bytes of VRAM: {nonZero}");
+        }
+
+
         private void DebugLog(string message)
         {
             if (debugTextBox.InvokeRequired)
@@ -483,50 +764,46 @@ namespace Vector06cEmulator
             try
             {
                 byte[] romData = File.ReadAllBytes(fileName);
-
-                // Для Вектор-06Ц программы обычно загружаются по адресу 0x0100
                 ushort loadAddress = 0x0100;
 
-                // Если файл имеет заголовок (например, .com или .exe), можно определить адрес
-                if (fileName.EndsWith(".com"))
-                    loadAddress = 0x0100;
-                else if (fileName.EndsWith(".exe"))
-                    loadAddress = 0x0100; // Для простоты пока так
+                // ОЧИЩАЕМ память перед загрузкой (опционально)
+                // for (int i = 0; i < 0x1000; i++)
+                //     emulator.Memory.Write((ushort)(loadAddress + i), 0);
 
                 emulator.Memory.Load(romData, loadAddress);
-
-                // Устанавливаем PC на точку входа
                 emulator.Cpu.PC = loadAddress;
-                emulator.Cpu.SP = 0xC000; // Стек в верхней части памяти
+                emulator.Cpu.SP = 0xC000;
 
-                DebugLog($"Загружен ROM: {Path.GetFileName(fileName)}");
-                DebugLog($"Размер: {romData.Length} байт, адрес: 0x{loadAddress:X4}");
-                DebugLog($"PC установлен на 0x{emulator.Cpu.PC:X4}, SP=0x{emulator.Cpu.SP:X4}");
+                // Сбрасываем состояние CPU
+                emulator.Cpu.Halted = false;
+                emulator.Cpu.A = 0;
+                emulator.Cpu.B = 0;
+                emulator.Cpu.C = 0;
+                emulator.Cpu.D = 0;
+                emulator.Cpu.E = 0;
+                emulator.Cpu.H = 0;
+                emulator.Cpu.L = 0;
 
-                statusLabel.Text = $"Загружен: {Path.GetFileName(fileName)}";
+                DebugLog($"\n=== ROM LOADED ===");
+                DebugLog($"File: {Path.GetFileName(fileName)}");
+                DebugLog($"Size: {romData.Length} bytes");
+                DebugLog($"Load address: 0x{loadAddress:X4}");
+                DebugLog($"PC: 0x{emulator.Cpu.PC:X4}");
+                DebugLog($"SP: 0x{emulator.Cpu.SP:X4}");
 
-                // показываем содержимое загруженного файла в programTextBox полностью
-                Text = $"Вектор-06Ц Эмулятор - {Path.GetFileName(fileName)}";
-                //programTextBox.Text = BitConverter.ToString(romData).Replace("-", " ");
-                
-                int displayBytes = romData.Length;
+                // Показываем содержимое загруженного файла
                 string hexDump = "";
-                for (int i = 0; i < displayBytes; i += 16)
+                for (int i = 0; i < Math.Min(64, romData.Length); i += 16)
                 {
-                    string hex = BitConverter.ToString(romData, i, Math.Min(16, displayBytes - i)).Replace("-", " ");
-                    //string ascii = "";
-                    for (int j = 0; j < Math.Min(16, displayBytes - i); j++)
-                    {
-                        byte b = romData[i + j];
-                        //ascii += (b >= 32 && b <= 126) ? (char)b : '.';
-                    }
-                    hexDump += $"{loadAddress + i:X4}: {hex,-48}\r\n";
+                    string hex = BitConverter.ToString(romData, i, Math.Min(16, romData.Length - i)).Replace("-", " ");
+                    hexDump += $"0x{loadAddress + i:X4}: {hex}\r\n";
                 }
                 programTextBox.Text = hexDump;
 
-                Disassembler.Disassemble(romData, emulator.GetCpu().GetMemory(), loadAddress);
-                programTextBox.Text += Disassembler.GetLog();
+                VerifyRomLoaded(); // Вызываем верификацию
 
+                statusLabel.Text = $"Загружен: {Path.GetFileName(fileName)}";
+                Text = $"Вектор-06Ц Эмулятор - {Path.GetFileName(fileName)}";
             }
             catch (Exception ex)
             {
@@ -570,23 +847,30 @@ namespace Vector06cEmulator
         {
             if (!isRunning)
             {
-                //string filename = GetRomPath("test_graphics-chess.rom");
-                string filename = GetRomPath("interactive.rom");
-                //emulator.LoadRom(GetRomPath("test_graphics-chess.rom"), 0x0100);
-                emulator.LoadRom(filename, 0x0100);
-                loadFileRom(filename);
-                //emulator.LoadRom(GetRomPath("test_chess.rom"), 0x0100);
-                emulator.Cpu.PC = 0x0100;
-                emulator.Cpu.SP = 0xC000;
+                // НЕ загружаем ROM здесь, используем уже загруженный через Load ROM кнопку
+                // Просто запускаем эмулятор с уже загруженной программой
 
+                // Убеждаемся, что PC указывает на начало программы
+                if (emulator.Cpu.PC == 0)
+                    emulator.Cpu.PC = 0x0100;
+                if (emulator.Cpu.SP == 0)
+                    emulator.Cpu.SP = 0xC000;
+
+                // Устанавливаем цвета
                 emulator.Video.SetBorderColor(0x00);
-                emulator.Video.SetPaletteColor(0x01);   // голубой
+                emulator.Video.SetPaletteColor(0x01);
+
+                // Очищаем экран перед запуском
+                for (int i = 0x1800; i <= 0x37FF; i++)
+                    emulator.Memory.Write((ushort)i, 0);
 
                 isRunning = true;
                 screenTimer.Start();
                 statusLabel.Text = "Статус: Запущен";
                 runButton.Enabled = false;
                 pauseButton.Enabled = true;
+
+                DebugLog("=== ЭМУЛЯЦИЯ ЗАПУЩЕНА ===");
             }
         }
 
@@ -1125,6 +1409,38 @@ namespace Vector06cEmulator
             string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
             File.WriteAllBytes(path, romData);
             DebugLog($"[ROM] test_graphics.rom создан ({romData.Length} байт) → {path}");
+        }
+
+
+        private void CheckVideoMemoryButton_Click(object? sender, EventArgs e)
+        {
+            DebugLog("=== VIDEO MEMORY DIAGNOSTIC ===");
+
+            // Проверяем адресацию видеопамяти
+            DebugLog($"Video RAM range: 0x1800 - 0x37FF");
+
+            // Проверяем, что можем записать и прочитать
+            ushort testAddr = 0x1800;
+            byte original = emulator.Memory.Read(testAddr);
+            emulator.Memory.Write(testAddr, 0xAA);
+            byte testRead = emulator.Memory.Read(testAddr);
+            DebugLog($"Write/Read test at 0x{testAddr:X4}: wrote 0xAA, read 0x{testRead:X2} (OK: {testRead == 0xAA})");
+            emulator.Memory.Write(testAddr, original);
+
+            // Дамп первых строк видеопамяти
+            emulator.Video.DumpVideoRam(0, 5);
+
+            // Проверяем конкретные пиксели
+            emulator.Video.CheckPixel(40, 100);
+            emulator.Video.CheckPixel(41, 100);
+            emulator.Video.CheckPixel(42, 100);
+
+            // Проверяем состояние портов
+            DebugLog($"Port 0x00 (border color): 0x{emulator.IOBus.In(0x00):X2}");
+            DebugLog($"Port 0x01 (palette): 0x{emulator.IOBus.In(0x01):X2}");
+            DebugLog($"Port 0x10 (scroll): 0x{emulator.IOBus.In(0x10):X2}");
+
+            DebugLog("=== END DIAGNOSTIC ===");
         }
     }
 }

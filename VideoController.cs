@@ -10,14 +10,14 @@ namespace Vector06cEmulator
         private const int ScreenHeight = 256;
         private const int VideoRamStart = 0x1800;
         private const int VideoRamEnd = 0x37FF;
-        private const int VideoRamSize = 8192; // 32 байта * 256 строк
+        private const int VideoRamSize = 8192;
 
         private readonly Memory _memory;
         private readonly Color[] palette = new Color[16];
 
-        private byte borderColor = 0;      // Цвет фона (порт 0x00)
-        private byte paletteIndex = 1;      // Цвет пикселей (порт 0x01)
-        private byte scrollOffset = 0;      // Скроллинг (порт 0x10)
+        private byte borderColor = 0;
+        private byte paletteIndex = 1;
+        private byte scrollOffset = 0;
 
         private Bitmap bitmap;
         private bool screenDirty = true;
@@ -31,7 +31,6 @@ namespace Vector06cEmulator
 
         private void InitializePalette()
         {
-            // Стандартная палитра Вектор-06Ц
             palette[0] = Color.Black;
             palette[1] = Color.Blue;
             palette[2] = Color.Green;
@@ -50,52 +49,36 @@ namespace Vector06cEmulator
             palette[15] = Color.LightGray;
         }
 
-        // Обработка портов ввода/вывода
         public void OutPort(byte port, byte value)
         {
             switch (port)
             {
-                case 0x00: // Цвет рамки/фона
+                case 0x00:
                     borderColor = (byte)(value & 0x0F);
                     screenDirty = true;
                     break;
-
-                case 0x01: // Цвет пикселей (палитра)
+                case 0x01:
                     paletteIndex = (byte)(value & 0x0F);
                     screenDirty = true;
                     break;
-
-                case 0x10: // Скроллинг
+                case 0x10:
                     scrollOffset = value;
                     screenDirty = true;
-                    break;
-
-                default:
-                    // Другие порты пока игнорируем
                     break;
             }
         }
 
         public byte InPort(byte port)
         {
-            // В реальном Вектор-06Ц здесь читаются состояния
             switch (port)
             {
-                case 0x00: // Чтение цвета фона
-                    return borderColor;
-
-                case 0x01: // Чтение цвета пикселей
-                    return paletteIndex;
-
-                case 0x10: // Чтение скроллинга
-                    return scrollOffset;
-
-                default:
-                    return 0xFF;
+                case 0x00: return borderColor;
+                case 0x01: return paletteIndex;
+                case 0x10: return scrollOffset;
+                default: return 0xFF;
             }
         }
 
-        // Принудительное обновление экрана
         public void UpdateScreen()
         {
             if (!screenDirty) return;
@@ -113,20 +96,16 @@ namespace Vector06cEmulator
 
                 for (int y = 0; y < ScreenHeight; y++)
                 {
-                    // Применяем скроллинг
                     int videoLine = (y + scrollOffset) % ScreenHeight;
-                    int lineBase = videoLine * 32;
+                    int lineBase = VideoRamStart + videoLine * 32;
 
                     for (int x = 0; x < ScreenWidth; x++)
                     {
-                        int byteOffset = lineBase + (x / 8);
-                        //ushort addr = (ushort)(VideoRamStart + byteOffset);
-                        ushort addr = (ushort)(0x1800 + videoLine * 32 + (x / 8));
-
+                        int byteOffset = x / 8;
+                        ushort addr = (ushort)(lineBase + byteOffset);
                         byte pixelByte = _memory.Read(addr);
                         int bitPos = 7 - (x % 8);
                         bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
-
                         uint color = pixelOn ? pixelColor32 : borderColor32;
                         ptr[y * ScreenWidth + x] = color;
                     }
@@ -144,29 +123,8 @@ namespace Vector06cEmulator
 
         public Bitmap GetBitmap() => bitmap;
 
-        // Для отладки
-        public void FillTestPattern()
-        {
-            // Заполняем видеопамять тестовым паттерном
-            for (int y = 0; y < ScreenHeight; y++)
-            {
-                for (int x = 0; x < 32; x++)
-                {
-                    ushort addr = (ushort)(VideoRamStart + y * 32 + x);
-                    byte value = (byte)((y / 8) % 2 == 0 ? 0xFF : 0x00);
-                    _memory.Write(addr, value);
-                }
-            }
-            screenDirty = true;
-        }
+        // === ДОБАВЛЕННЫЕ МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ ===
 
-        public void SaveScreenshot(string filename)
-        {
-            UpdateScreen();
-            bitmap.Save(filename, ImageFormat.Png);
-        }
-
-        // Методы для обратной совместимости со старым кодом
         public void SetBorderColor(byte value)
         {
             OutPort(0x00, value);
@@ -182,6 +140,12 @@ namespace Vector06cEmulator
             OutPort(0x10, value);
         }
 
+        public void SaveScreenshot(string filename)
+        {
+            UpdateScreen();
+            bitmap.Save(filename, ImageFormat.Png);
+        }
+
         public void ForcePalette(int paletteIdx, int borderIdx)
         {
             OutPort(0x01, (byte)paletteIdx);
@@ -192,7 +156,6 @@ namespace Vector06cEmulator
         public void UpdateScreenInternal(Bitmap targetBitmap)
         {
             UpdateScreen();
-            // Копируем внутренний bitmap в targetBitmap
             using (var g = Graphics.FromImage(targetBitmap))
             {
                 g.DrawImage(bitmap, 0, 0);
@@ -223,6 +186,40 @@ namespace Vector06cEmulator
         {
             if (addr >= VideoRamStart && addr <= VideoRamEnd)
                 _memory.Write(addr, value);
+        }
+
+        public void DumpVideoRam(int startLine = 0, int lines = 10)
+        {
+            Console.WriteLine($"=== VIDEO RAM DUMP (lines {startLine}-{startLine + lines}) ===");
+            for (int line = startLine; line < startLine + lines && line < 256; line++)
+            {
+                int baseAddr = VideoRamStart + line * 32;
+                Console.Write($"Line {line:3} (0x{baseAddr:X4}): ");
+                for (int x = 0; x < 32; x++)
+                {
+                    byte val = _memory.Read((ushort)(baseAddr + x));
+                    Console.Write($"{val:X2} ");
+                }
+                Console.WriteLine();
+            }
+        }
+
+        public void CheckPixel(int x, int y)
+        {
+            if (x < 0 || x >= 256 || y < 0 || y >= 256)
+            {
+                Console.WriteLine($"Pixel ({x},{y}) out of range");
+                return;
+            }
+
+            int lineBase = VideoRamStart + y * 32;
+            int byteOffset = x / 8;
+            int bitPos = 7 - (x % 8);
+            ushort addr = (ushort)(lineBase + byteOffset);
+            byte pixelByte = _memory.Read(addr);
+            bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
+
+            Console.WriteLine($"Pixel ({x},{y}): addr=0x{addr:X4}, byte=0x{pixelByte:X2}, bit={bitPos}, on={pixelOn}");
         }
     }
 }
