@@ -152,15 +152,16 @@ namespace Vector06cEmulator
             Controls.Add(pauseButton);
             Controls.Add(statusLabel);
 
-            CreateDebugRom();
+            CreateSimpleDebugRom();
+            /*CreateDebugRom();
             CreateWorkingTestRom();
             CreateMinimalTestRom();
-            //CreateDiagnosticRom();
-            //CreateSimpleHelloWorldRom();
+            CreateDiagnosticRom();
+            CreateSimpleHelloWorldRom();
             
-            //CreateTestGraphicsRom();
-            //CreateFullBlueRom();
-            //CreateSnakeRom();
+            CreateTestGraphicsRom();
+            CreateFullBlueRom();
+            CreateSnakeRom();*/
 
             statusTimer.Start();
 
@@ -886,7 +887,7 @@ namespace Vector06cEmulator
         private void ScreenTimer_Tick(object? sender, EventArgs e)
         {
             // Выполняем несколько шагов CPU за каждый тик таймера
-            for (int i = 0; i < 1200; i++) // ~60000 тактов / 50 Гц
+            for (int i = 0; i < 100; i++) // Выполняем 100 шагов для отладки
             {
                 if (emulator.Cpu.Halted)
                 {
@@ -895,22 +896,30 @@ namespace Vector06cEmulator
                     statusLabel.Text = "Статус: HLT (остановлен)";
                     runButton.Enabled = true;
                     pauseButton.Enabled = false;
+                    DebugLog("CPU HALTED - остановка эмуляции");
                     break;
                 }
+
+                // Сохраняем состояние перед шагом
+                ushort pcBefore = emulator.Cpu.PC;
+                byte opcode = emulator.Memory.Read(pcBefore);
+
                 emulator.Step();
 
-                //Disassembler.Disassemble(emulator.GetCpu().GetMemory().GetDump(), emulator.GetCpu().GetMemory(), 0x100);
-                //programTextBox.Text += Disassembler.GetLog();
+                // Логируем каждую инструкцию
+                DebugLog($"PC={pcBefore:X4} OP={opcode:X2} A={emulator.Cpu.A:X2} H={emulator.Cpu.H:X2} L={emulator.Cpu.L:X2} HL={(emulator.Cpu.H << 8) | emulator.Cpu.L:X4}");
 
+                if (emulator.Cpu.Halted)
+                {
+                    DebugLog("!!! HALT INSTRUCTION EXECUTED !!!");
+                    break;
+                }
             }
 
             // Обновляем экран
             emulator.Video.UpdateScreen();
             pictureBox.Image?.Dispose();
             pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
-
-            if (++_tickCount % 50 == 0)   // каждую секунду
-                emulator.PrintState();
         }
 
 
@@ -1354,6 +1363,50 @@ namespace Vector06cEmulator
             string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
             File.WriteAllBytes(path, romData);
             DebugLog($"[ROM] test_graphics.rom создан ({romData.Length} байт) → {path}");
+        }
+
+        private void CreateSimpleDebugRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // Максимально простая программа
+
+            // 0x0100: MVI A, 0x00
+            Emit(0x3E, 0x00);
+
+            // 0x0102: OUT 0x00
+            Emit(0xD3, 0x00);
+
+            // 0x0104: MVI A, 0x03
+            Emit(0x3E, 0x03);
+
+            // 0x0106: OUT 0x01
+            Emit(0xD3, 0x01);
+
+            // 0x0108: LXI H, 0x1800
+            Emit(0x21, 0x00, 0x18);
+
+            // 0x010B: MVI M, 0xFF
+            Emit(0x36, 0xFF);
+
+            // 0x010D: HLT
+            Emit(0x76);
+
+            var romData = code.ToArray();
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "simple_debug.rom");
+            File.WriteAllBytes(path, romData);
+
+            DebugLog($"\n=== SIMPLE DEBUG ROM ===");
+            DebugLog($"Path: {path}");
+            DebugLog($"Size: {romData.Length} bytes");
+
+            // Выводим дамп
+            for (int i = 0; i < romData.Length; i += 8)
+            {
+                string hex = BitConverter.ToString(romData, i, Math.Min(8, romData.Length - i)).Replace("-", " ");
+                DebugLog($"0x{(0x0100 + i):X4}: {hex}");
+            }
         }
 
         private void CreateDebugRom()

@@ -1,4 +1,5 @@
 using System;
+using System.Windows.Forms;
 
 namespace Vector06cEmulator
 {
@@ -32,11 +33,14 @@ namespace Vector06cEmulator
 
         public void Out(byte port, byte value)
         {
-            if (port >= 0x00 && port <= 0x0F)
+            Console.WriteLine($"[IOBUS] OUT port=0x{port:X2}, value=0x{value:X2}");
+
+            // Ваш существующий код обработки портов
+            if (port == 0x00 || port == 0x01 || port == 0x10)
             {
                 _video.OutPort(port, value);
             }
-            // Другие порты вывода пока игнорируем
+            // ... остальной код
         }
     }
 }

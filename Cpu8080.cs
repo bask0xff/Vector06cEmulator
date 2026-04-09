@@ -27,12 +27,15 @@ namespace Vector06cEmulator
             if (Halted) return;
 
             ushort oldPC = PC;
-
-            //Disassembler.Disassemble(memory, oldPC); 
-
             byte opcode = memory.Read(PC++);
 
+            // ОТЛАДОЧНЫЙ ВЫВОД
+            Console.WriteLine($"\n[STEP] PC={oldPC:X4} OP=0x{opcode:X2} A=0x{A:X2} H=0x{H:X2} L=0x{L:X2}");
+
             Execute(opcode, oldPC);
+
+            // После выполнения показываем изменения
+            Console.WriteLine($"  -> A=0x{A:X2} H=0x{H:X2} L=0x{L:X2} PC=0x{PC:X4}");
         }
 
         // Вызвать аппаратное прерывание (RST 7 = вектор 0x0038)
@@ -79,7 +82,12 @@ namespace Vector06cEmulator
                 case 0x1E: E = memory.Read(PC++); break;
                 case 0x26: H = memory.Read(PC++); break;
                 case 0x2E: L = memory.Read(PC++); break;
-                case 0x36: memory.Write(GetHL(), memory.Read(PC++)); break; // MVI M, byte
+                case 0x36:
+                    ushort addr = GetHL();
+                    byte value = memory.Read(PC++);
+                    Console.WriteLine($"    MVI M, 0x{value:X2} at address 0x{addr:X4}");
+                    memory.Write(addr, value);
+                    break;
 
                 // ── LXI rp, d16 ──────────────────────────────────────
                 case 0x01: SetBC(ReadWord()); break;
@@ -93,22 +101,35 @@ namespace Vector06cEmulator
                 case 0x31: SP = ReadWord(); break;
 
                 // ── LDA / STA / LHLD / SHLD ──────────────────────────
-                case 0x3A: A = memory.Read(ReadWord()); break;  // LDA addr
-                case 0x32: memory.Write(ReadWord(), A); break;  // STA addr
-                case 0x2A:                                       // LHLD addr
+                case 0x3A:  // LDA addr
                     {
-                        ushort addr = ReadWord();
-                        L = memory.Read(addr);
-                        H = memory.Read((ushort)(addr + 1));
+                        ushort ldaAddr = ReadWord();
+                        A = memory.Read(ldaAddr);
                         break;
                     }
-                case 0x22:                                       // SHLD addr
+
+                case 0x32:  // STA addr
                     {
-                        ushort addr = ReadWord();
-                        memory.Write(addr, L);
-                        memory.Write((ushort)(addr + 1), H);
+                        ushort staAddr = ReadWord();
+                        memory.Write(staAddr, A);
                         break;
                     }
+
+                case 0x2A:  // LHLD addr
+                    {
+                        ushort lhldAddr = ReadWord();
+                        L = memory.Read(lhldAddr);
+                        H = memory.Read((ushort)(lhldAddr + 1));
+                        break;
+                    }
+                case 0x22:  // SHLD addr
+                    {
+                        ushort shldAddr = ReadWord();
+                        memory.Write(shldAddr, L);
+                        memory.Write((ushort)(shldAddr + 1), H);
+                        break;
+                    }
+
 
                 // ── LDAX / STAX ──────────────────────────────────────
                 case 0x0A: A = memory.Read(GetBC()); break;
@@ -135,12 +156,13 @@ namespace Vector06cEmulator
                 case 0x1C: E = Inr(E); break;
                 case 0x24: H = Inr(H); break;
                 case 0x2C: L = Inr(L); break;
-                case 0x34:                          // INR M
+                case 0x34:  // INR M
                     {
-                        ushort addr = GetHL();
-                        memory.Write(addr, Inr(memory.Read(addr)));
+                        ushort hlAddr = GetHL();
+                        memory.Write(hlAddr, Inr(memory.Read(hlAddr)));
                         break;
                     }
+
                 case 0x3C: A = Inr(A); break;
 
                 // ── DCR r ────────────────────────────────────────────
@@ -150,12 +172,13 @@ namespace Vector06cEmulator
                 case 0x1D: E = Dcr(E); break;
                 case 0x25: H = Dcr(H); break;
                 case 0x2D: L = Dcr(L); break;
-                case 0x35:                          // DCR M
+                case 0x35:  // DCR M
                     {
-                        ushort addr = GetHL();
-                        memory.Write(addr, Dcr(memory.Read(addr)));
+                        ushort hlAddr = GetHL();
+                        memory.Write(hlAddr, Dcr(memory.Read(hlAddr)));
                         break;
                     }
+
                 case 0x3D: A = Dcr(A); break;
 
                 // ── ADD r ────────────────────────────────────────────
@@ -391,6 +414,7 @@ namespace Vector06cEmulator
                 case 0xD3:  // OUT port
                     {
                         byte port = memory.Read(PC++);
+                        Console.WriteLine($"    OUT port=0x{port:X2}, value=0x{A:X2}");
                         ioBus.Out(port, A);
                         break;
                     }
@@ -606,7 +630,7 @@ namespace Vector06cEmulator
             byte low = memory.Read(PC++);
             byte high = memory.Read(PC++);
             ushort result = (ushort)((high << 8) | low);
-            DebugLog($"  ReadWord at PC={PC - 2:X4}: low=0x{low:X2} high=0x{high:X2} result=0x{result:X4}");
+            Console.WriteLine($"    ReadWord: low=0x{low:X2} high=0x{high:X2} result=0x{result:X4}");
             return result;
         }
 
