@@ -27,7 +27,13 @@ namespace Vector06cEmulator
         {
             Memory = new Memory();
             Video = new VideoController(Memory);
-            Memory.SetVideoController(Video);   // ← важно! связываем их
+            Memory.SetVideoController(Video);
+
+            // Инициализируем видеопамять нулями
+            for (int i = 0x1800; i <= 0x37FF; i++)
+            {
+                Memory.Write((ushort)i, 0);
+            }
 
             Keyboard = new Keyboard();
             IOBus = new IOBus(Video, Keyboard);

@@ -79,6 +79,71 @@ namespace Vector06cEmulator
             }
         }
 
+        // Временный метод для отладки - использует яркие цвета для проверки
+        public void UpdateScreenDebug()
+        {
+            Console.WriteLine("\n=== UpdateScreenDebug CALLED ===");
+
+            // Создаём новый bitmap для теста
+            var testBitmap = new Bitmap(ScreenWidth, ScreenHeight, PixelFormat.Format32bppArgb);
+
+            var bitmapData = testBitmap.LockBits(
+                new Rectangle(0, 0, ScreenWidth, ScreenHeight),
+                ImageLockMode.WriteOnly,
+                PixelFormat.Format32bppArgb);
+
+            unsafe
+            {
+                uint* ptr = (uint*)bitmapData.Scan0.ToPointer();
+
+                // Используем простые цвета для теста (НЕ из палитры)
+                uint borderColor32 = 0xFFFF0000; // КРАСНЫЙ (Alpha=FF, Red=FF, Green=00, Blue=00)
+                uint pixelColor32 = 0xFF00FF00;   // ЗЕЛЁНЫЙ (Alpha=FF, Red=00, Green=FF, Blue=00)
+
+                Console.WriteLine($"Using border color: RED (0x{borderColor32:X8})");
+                Console.WriteLine($"Using pixel color: GREEN (0x{pixelColor32:X8})");
+
+                // Читаем первый байт видеопамяти
+                byte vram0 = _memory.Read(0x1800);
+                Console.WriteLine($"VRAM[0x1800] = 0x{vram0:X2}");
+
+                int pixelsOn = 0;
+
+                // Рисуем ВСЕ строки для теста
+                for (int y = 0; y < ScreenHeight; y++)
+                {
+                    int videoLine = (y + scrollOffset) % ScreenHeight;
+
+                    for (int x = 0; x < ScreenWidth; x++)
+                    {
+                        int byteOffset = x / 8;
+                        int bitPos = 7 - (x % 8);
+                        ushort addr = (ushort)(VideoRamStart + videoLine * 32 + byteOffset);
+                        byte pixelByte = _memory.Read(addr);
+                        bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
+
+                        if (pixelOn) pixelsOn++;
+
+                        uint color = pixelOn ? pixelColor32 : borderColor32;
+                        ptr[y * ScreenWidth + x] = color;
+                    }
+                }
+
+                Console.WriteLine($"Pixels ON: {pixelsOn} out of {ScreenWidth * ScreenHeight}");
+                Console.WriteLine("Screen filled: RED background, GREEN pixels where VRAM=1");
+            }
+
+            testBitmap.UnlockBits(bitmapData);
+
+            // Заменяем текущий bitmap
+            var oldBitmap = bitmap;
+            bitmap = testBitmap;
+            if (oldBitmap != null) oldBitmap.Dispose();
+
+            screenDirty = false;
+            Console.WriteLine("=== UpdateScreenDebug FINISHED ===\n");
+        }
+
         public void UpdateScreen()
         {
             if (!screenDirty) return;
@@ -94,39 +159,40 @@ namespace Vector06cEmulator
                 uint borderColor32 = (uint)ColorToArgb(palette[borderColor]);
                 uint pixelColor32 = (uint)ColorToArgb(palette[paletteIndex]);
 
-                // ОТЛАДКА: выводим цвета
-                Console.WriteLine($"[VIDEO] Border color: {borderColor} ({palette[borderColor].Name}) -> 0x{borderColor32:X8}");
-                Console.WriteLine($"[VIDEO] Pixel color: {paletteIndex} ({palette[paletteIndex].Name}) -> 0x{pixelColor32:X8}");
-
-                // Проверяем первый байт видеопамяти
-                byte testByte = _memory.Read(0x1800);
-                Console.WriteLine($"[VIDEO] VRAM[0x1800] = 0x{testByte:X2}");
-
-                int pixelsOn = 0;
-                int pixelsOff = 0;
+                // ОТЛАДКА
+                Console.WriteLine($"[VIDEO] Border={borderColor}, Pixel={paletteIndex}");
+                Console.WriteLine($"[VIDEO] VRAM[0x1800]={_memory.Read(0x1800):X2}");
 
                 for (int y = 0; y < ScreenHeight; y++)
                 {
+                    // ВАЖНО: скроллинг применяется к отображению, но не к адресации
                     int videoLine = (y + scrollOffset) % ScreenHeight;
-                    int lineBase = VideoRamStart + videoLine * 32;
 
                     for (int x = 0; x < ScreenWidth; x++)
                     {
+                        // ПРАВИЛЬНЫЙ расчёт адреса видеопамяти
+                        // Каждая строка = 32 байта
+                        // Байт = x / 8
+                        // Бит = 7 - (x % 8) - старший бит = левый пиксель
                         int byteOffset = x / 8;
-                        ushort addr = (ushort)(lineBase + byteOffset);
-                        byte pixelByte = _memory.Read(addr);
                         int bitPos = 7 - (x % 8);
+
+                        // Адрес = начало видеопамяти + (строка * 32) + смещение байта
+                        ushort addr = (ushort)(VideoRamStart + (videoLine * 32) + byteOffset);
+
+                        byte pixelByte = _memory.Read(addr);
                         bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
 
-                        if (pixelOn) pixelsOn++; else pixelsOff++;
+                        // Для отладки первой строки
+                        if (y == 0 && x < 16)
+                        {
+                            Console.WriteLine($"  Pixel ({x},0): byteOffset={byteOffset}, bitPos={bitPos}, byte=0x{pixelByte:X2}, on={pixelOn}");
+                        }
 
                         uint color = pixelOn ? pixelColor32 : borderColor32;
                         ptr[y * ScreenWidth + x] = color;
                     }
                 }
-
-                Console.WriteLine($"[VIDEO] Pixels: ON={pixelsOn}, OFF={pixelsOff}");
-                Console.WriteLine($"[VIDEO] First pixel color: 0x{ptr[0]:X8}");
             }
 
             bitmap.UnlockBits(bitmapData);

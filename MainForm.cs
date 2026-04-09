@@ -470,7 +470,7 @@ namespace Vector06cEmulator
             }
 
             // Обновляем экран
-            emulator.Video.UpdateScreen();
+            emulator.Video.UpdateScreenDebug();
             pictureBox.Image?.Dispose();
             pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
 
@@ -724,7 +724,7 @@ namespace Vector06cEmulator
             emulator.IOBus.Out(0x01, 0x03); // 03 - голубые пиксели
 
             // Обновляем экран
-            emulator.Video.UpdateScreen();
+            emulator.Video.UpdateScreenDebug();
             pictureBox.Image?.Dispose();
             pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
 
@@ -887,8 +887,7 @@ namespace Vector06cEmulator
 
         private void ScreenTimer_Tick(object? sender, EventArgs e)
         {
-            // Выполняем несколько шагов CPU за каждый тик таймера
-            for (int i = 0; i < 100; i++) // Выполняем 100 шагов для отладки
+            for (int i = 0; i < 100; i++)
             {
                 if (emulator.Cpu.Halted)
                 {
@@ -900,40 +899,33 @@ namespace Vector06cEmulator
                     DebugLog("CPU HALTED - остановка эмуляции");
                     break;
                 }
-
-                // Сохраняем состояние перед шагом
-                ushort pcBefore = emulator.Cpu.PC;
-                byte opcode = emulator.Memory.Read(pcBefore);
-
                 emulator.Step();
-
-                // Логируем каждую инструкцию
-                DebugLog($"PC={pcBefore:X4} OP={opcode:X2} A={emulator.Cpu.A:X2} H={emulator.Cpu.H:X2} L={emulator.Cpu.L:X2} HL={(emulator.Cpu.H << 8) | emulator.Cpu.L:X4}");
-
-                if (emulator.Cpu.Halted)
-                {
-                    DebugLog("\n=== VIDEO RAM CHECK ===");
-                    byte vram0 = emulator.Memory.Read(0x1800);
-                    byte vram1 = emulator.Memory.Read(0x1801);
-                    DebugLog($"VRAM[0x1800] = 0x{vram0:X2}");
-                    DebugLog($"VRAM[0x1801] = 0x{vram1:X2}");
-
-                    // Проверяем, что порты установлены правильно
-                    byte border = emulator.IOBus.In(0x00);
-                    byte color = emulator.IOBus.In(0x01);
-                    DebugLog($"Border color (port 0x00) = {border}");
-                    DebugLog($"Pixel color (port 0x01) = {color}");
-                }
-
-                // Обновляем экран
-                emulator.Video.UpdateScreen();
-                pictureBox.Image?.Dispose();
-                pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
-
             }
 
-            // Обновляем экран
-            emulator.Video.UpdateScreen();
+            // ПОСЛЕ выполнения, если CPU остановлен, проверяем пиксели
+            if (emulator.Cpu.Halted)
+            {
+                DebugLog("\n=== PIXEL CHECK ===");
+                emulator.Video.CheckPixel(0, 0);
+                emulator.Video.CheckPixel(7, 0);
+                emulator.Video.CheckPixel(8, 0);
+
+                byte border = emulator.IOBus.In(0x00);
+                byte color = emulator.IOBus.In(0x01);
+                DebugLog($"Port 0x00 (border) = {border}");
+                DebugLog($"Port 0x01 (color) = {color}");
+
+                DebugLog("\n=== VRAM DUMP (first 16 bytes) ===");
+                for (int i = 0; i < 16; i++)
+                {
+                    byte val = emulator.Memory.Read((ushort)(0x1800 + i));
+                    DebugLog($"0x{0x1800 + i:X4}: 0x{val:X2}");
+                }
+            }
+
+            // ВАЖНО: вызываем UpdateScreenDebug, а не UpdateScreen
+            emulator.Video.UpdateScreenDebug();
+
             pictureBox.Image?.Dispose();
             pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
         }
