@@ -152,7 +152,7 @@ namespace Vector06cEmulator
             Controls.Add(pauseButton);
             Controls.Add(statusLabel);
 
-
+            CreateDebugRom();
             CreateWorkingTestRom();
             CreateMinimalTestRom();
             //CreateDiagnosticRom();
@@ -1356,6 +1356,85 @@ namespace Vector06cEmulator
             DebugLog($"[ROM] test_graphics.rom создан ({romData.Length} байт) → {path}");
         }
 
+        private void CreateDebugRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // ============================================
+            // ПРОСТЕЙШАЯ ОТЛАДОЧНАЯ ПРОГРАММА
+            // Без циклов, просто последовательные инструкции
+            // ============================================
+
+            // 0x0100: MVI A, 0x00
+            Emit(0x3E, 0x00);        // MVI A, 0
+
+            // 0x0102: OUT 0x00 - чёрный фон
+            Emit(0xD3, 0x00);        // OUT 0x00
+
+            // 0x0104: MVI A, 0x03
+            Emit(0x3E, 0x03);        // MVI A, 3
+
+            // 0x0106: OUT 0x01 - голубой цвет пикселей
+            Emit(0xD3, 0x01);        // OUT 0x01
+
+            // 0x0108: LXI H, 0x1800
+            Emit(0x21, 0x00, 0x18);  // LXI H, 0x1800
+
+            // 0x010B: MVI M, 0xFF - записать FF в видеопамять
+            Emit(0x36, 0xFF);        // MVI M, 0xFF
+
+            // 0x010D: MVI A, 0xAA - тестовое значение
+            Emit(0x3E, 0xAA);        // MVI A, 0xAA
+
+            // 0x010F: HLT - останов (чтобы видеть результат)
+            Emit(0x76);              // HLT
+
+            var romData = code.ToArray();
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug.rom");
+            File.WriteAllBytes(path, romData);
+
+            DebugLog($"=== DEBUG ROM CREATED ===");
+            DebugLog($"Path: {path}");
+            DebugLog($"Size: {romData.Length} bytes");
+            DebugLog($"Expected: Black background, blue pixel column at left edge, then HALT");
+
+            // Выводим дамп ROM
+            DebugLog("\nROM dump:");
+            for (int i = 0; i < romData.Length; i += 8)
+            {
+                string hex = BitConverter.ToString(romData, i, Math.Min(8, romData.Length - i)).Replace("-", " ");
+                DebugLog($"0x{(0x0100 + i):X4}: {hex}");
+            }
+        }
+
+        private void CreateDebugRom_old()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // Самая простая программа - просто устанавливает цвет и заливает 1 строку
+            Emit(0x3E, 0x00);        // MVI A, 0
+            Emit(0xD3, 0x00);        // OUT 0x00 - чёрный фон
+
+            Emit(0x3E, 0x03);        // MVI A, 3
+            Emit(0xD3, 0x01);        // OUT 0x01 - голубой цвет
+
+            // Записываем 0xFF в первый байт видеопамяти
+            Emit(0x21, 0x00, 0x18);  // LXI H, 0x1800
+            Emit(0x36, 0xFF);        // MVI M, 0xFF
+
+            // Бесконечный цикл
+            Emit(0xC3, 0x0C, 0x01);  // JMP 0x010C
+
+            var romData = code.ToArray();
+            string path = Path.Combine(GetProjectPath(), "debug.rom");
+            File.WriteAllBytes(path, romData);
+
+            DebugLog($"Debug ROM created: {path}");
+            DebugLog("Expected: One pixel column (8 pixels wide) at left edge");
+        }
+
         private void CreateTestGraphicsRom2()
         {
             // Простой тестовый ROM - рисует полосы и шахматку
@@ -1441,6 +1520,20 @@ namespace Vector06cEmulator
             DebugLog($"Port 0x10 (scroll): 0x{emulator.IOBus.In(0x10):X2}");
 
             DebugLog("=== END DIAGNOSTIC ===");
+        }
+
+        private void DebugMemoryDump(ushort start, ushort count)
+        {
+            DebugLog($"\n=== MEMORY DUMP 0x{start:X4} - 0x{start + count:X4} ===");
+            for (ushort addr = start; addr < start + count; addr += 16)
+            {
+                string hex = "";
+                for (int i = 0; i < 16 && addr + i < start + count; i++)
+                {
+                    hex += $"{emulator.Memory.Read((ushort)(addr + i)):X2} ";
+                }
+                DebugLog($"0x{addr:X4}: {hex}");
+            }
         }
     }
 }

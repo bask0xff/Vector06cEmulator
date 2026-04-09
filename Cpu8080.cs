@@ -47,6 +47,8 @@ namespace Vector06cEmulator
 
         private void Execute(byte opcode, ushort oldPC)
         {
+            DebugLog($"PC={oldPC:X4} OP={opcode:X2} A={A:X2} H={H:X2} L={L:X2} SP={SP:X4}");
+
             // MOV r1, r2 (0x40–0x7F, кроме 0x76 HLT)
             if (opcode != 0x76 && (opcode & 0xC0) == 0x40)
             {
@@ -55,6 +57,9 @@ namespace Vector06cEmulator
                 SetReg(dst, GetReg(src));
                 return;
             }
+
+            Console.WriteLine($"Executing at PC={oldPC:X4}, opcode={opcode:X2}, A={A:X2}");
+
 
             switch (opcode)
             {
@@ -79,7 +84,12 @@ namespace Vector06cEmulator
                 // ── LXI rp, d16 ──────────────────────────────────────
                 case 0x01: SetBC(ReadWord()); break;
                 case 0x11: SetDE(ReadWord()); break;
-                case 0x21: SetHL(ReadWord()); break;
+                case 0x21: // LXI H, d16
+                    ushort hlVal = ReadWord();
+                    Console.WriteLine($"LXI H, 0x{hlVal:X4}");
+                    SetHL(hlVal);
+                    break;
+                
                 case 0x31: SP = ReadWord(); break;
 
                 // ── LDA / STA / LHLD / SHLD ──────────────────────────
@@ -287,7 +297,12 @@ namespace Vector06cEmulator
                 case 0x3F: CY = !CY; break;               // CMC
 
                 // ── JMP и условные переходы ──────────────────────────
-                case 0xC3: PC = ReadWord(); break;
+                case 0xC3:
+                    ushort jmpAddr = ReadWord();
+                    Console.WriteLine($"JMP to 0x{jmpAddr:X4} from 0x{oldPC:X4}");
+                    PC = jmpAddr;
+                    break;
+
                 case 0xC2: { ushort a = ReadWord(); if (!Z) PC = a; break; } // JNZ
                 case 0xCA: { ushort a = ReadWord(); if (Z) PC = a; break; } // JZ
                 case 0xD2: { ushort a = ReadWord(); if (!CY) PC = a; break; } // JNC
@@ -524,16 +539,18 @@ namespace Vector06cEmulator
 
         // ── Стек ─────────────────────────────────────────────────────
 
-        void Push(ushort value)
+        // Исправленный Push (сохраняем старший байт первым)
+        private void Push(ushort value)
         {
-            memory.Write(--SP, (byte)(value >> 8));
-            memory.Write(--SP, (byte)(value & 0xFF));
+            memory.Write(--SP, (byte)(value >> 8));   // старший байт
+            memory.Write(--SP, (byte)(value & 0xFF)); // младший байт
         }
 
-        ushort Pop()
+        // Исправленный Pop
+        private ushort Pop()
         {
-            byte low = memory.Read(SP++);
-            byte high = memory.Read(SP++);
+            byte low = memory.Read(SP++);   // младший байт
+            byte high = memory.Read(SP++);  // старший байт
             return (ushort)((high << 8) | low);
         }
 
@@ -576,11 +593,27 @@ namespace Vector06cEmulator
         ushort GetHL() => (ushort)((H << 8) | L);
         void SetHL(ushort v) { H = (byte)(v >> 8); L = (byte)(v & 0xFF); }
 
-        ushort ReadWord()
+        /*
+        private ushort ReadWord()
+        {
+            byte low = memory.Read(PC++);   // младший байт
+            byte high = memory.Read(PC++);  // старший байт
+            return (ushort)((high << 8) | low);  // Intel 8080 использует little-endian
+        }*/
+
+        private ushort ReadWord()
         {
             byte low = memory.Read(PC++);
             byte high = memory.Read(PC++);
-            return (ushort)(low | (high << 8));
+            ushort result = (ushort)((high << 8) | low);
+            DebugLog($"  ReadWord at PC={PC - 2:X4}: low=0x{low:X2} high=0x{high:X2} result=0x{result:X4}");
+            return result;
         }
+
+        private void DebugLog(string message)
+        {
+            Console.WriteLine($"[CPU] {message}");
+        }
+
     }
 }
