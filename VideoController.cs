@@ -82,6 +82,7 @@ namespace Vector06cEmulator
         // Временный метод для отладки - использует яркие цвета для проверки
         public void UpdateScreenDebug()
         {
+            UpdateScreen();
             Console.WriteLine("\n=== UpdateScreenDebug CALLED ===");
 
             // Создаём новый bitmap для теста
@@ -156,38 +157,28 @@ namespace Vector06cEmulator
             unsafe
             {
                 uint* ptr = (uint*)bitmapData.Scan0.ToPointer();
-                uint borderColor32 = (uint)ColorToArgb(palette[borderColor]);
-                uint pixelColor32 = (uint)ColorToArgb(palette[paletteIndex]);
 
-                // ОТЛАДКА
-                Console.WriteLine($"[VIDEO] Border={borderColor}, Pixel={paletteIndex}");
-                Console.WriteLine($"[VIDEO] VRAM[0x1800]={_memory.Read(0x1800):X2}");
+                // ПРАВИЛЬНОЕ преобразование цветов палитры в ARGB
+                uint GetColorFromPalette(int index)
+                {
+                    Color c = palette[index & 0x0F];
+                    return (uint)((c.A << 24) | (c.R << 16) | (c.G << 8) | c.B);
+                }
+
+                uint borderColor32 = GetColorFromPalette(borderColor);
+                uint pixelColor32 = GetColorFromPalette(paletteIndex);
 
                 for (int y = 0; y < ScreenHeight; y++)
                 {
-                    // ВАЖНО: скроллинг применяется к отображению, но не к адресации
                     int videoLine = (y + scrollOffset) % ScreenHeight;
 
                     for (int x = 0; x < ScreenWidth; x++)
                     {
-                        // ПРАВИЛЬНЫЙ расчёт адреса видеопамяти
-                        // Каждая строка = 32 байта
-                        // Байт = x / 8
-                        // Бит = 7 - (x % 8) - старший бит = левый пиксель
                         int byteOffset = x / 8;
                         int bitPos = 7 - (x % 8);
-
-                        // Адрес = начало видеопамяти + (строка * 32) + смещение байта
-                        ushort addr = (ushort)(VideoRamStart + (videoLine * 32) + byteOffset);
-
+                        ushort addr = (ushort)(VideoRamStart + videoLine * 32 + byteOffset);
                         byte pixelByte = _memory.Read(addr);
                         bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
-
-                        // Для отладки первой строки
-                        if (y == 0 && x < 16)
-                        {
-                            Console.WriteLine($"  Pixel ({x},0): byteOffset={byteOffset}, bitPos={bitPos}, byte=0x{pixelByte:X2}, on={pixelOn}");
-                        }
 
                         uint color = pixelOn ? pixelColor32 : borderColor32;
                         ptr[y * ScreenWidth + x] = color;
@@ -201,7 +192,8 @@ namespace Vector06cEmulator
 
         private int ColorToArgb(Color color)
         {
-            return (color.A << 24) | (color.R << 16) | (color.G << 8) | color.B;
+            // Убедитесь, что альфа-канал = 255 (полностью непрозрачный)
+            return (255 << 24) | (color.R << 16) | (color.G << 8) | color.B;
         }
 
         public Bitmap GetBitmap() => bitmap;
