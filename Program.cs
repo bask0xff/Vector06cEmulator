@@ -1,15 +1,19 @@
-﻿namespace Vector06cEmulator
+using System;
+using System.IO;
+using System.Windows.Forms;
+
+namespace Vector06cEmulator
 {
-    class Program
+    static class Program
     {
+        [STAThread]
         static void Main()
         {
-            var emu = new Emulator();
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
 
-            emu.LoadRom("test.bin"); 
-            emu.Run();
-
-            Console.ReadLine();
+            var mainForm = new MainForm();
+            Application.Run(mainForm);
         }
     }
 }
