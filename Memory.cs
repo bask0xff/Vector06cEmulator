@@ -13,20 +13,24 @@ namespace Vector06cEmulator
             _video = video;
         }
 
-        public byte Read(ushort addr)
-        {
-            return mem[addr];
-        }
-
         public void Write(ushort addr, byte value)
         {
-            mem[addr] = value;
-
-            // Зеркалирование в видеопамять
-            if (addr >= 0x1800 && addr <= 0x37FF && _video != null)
+            if (addr >= 0x1800 && addr <= 0x180F) // Первые 16 байт видеопамяти
             {
-                //_video.DirectWriteVideoRam(addr, value);   // новый метод, см. ниже
+                Console.WriteLine($"[MEMORY] WRITE 0x{addr:X4} = 0x{value:X2}");
             }
+
+            mem[addr] = value;
+        }
+
+        public byte Read(ushort addr)
+        {
+            byte value = mem[addr];
+            if (addr >= 0x1800 && addr <= 0x180F)
+            {
+                Console.WriteLine($"[MEMORY] READ 0x{addr:X4} = 0x{value:X2}");
+            }
+            return value;
         }
 
         public void Load(byte[] data, ushort start = 0)

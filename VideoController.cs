@@ -94,6 +94,17 @@ namespace Vector06cEmulator
                 uint borderColor32 = (uint)ColorToArgb(palette[borderColor]);
                 uint pixelColor32 = (uint)ColorToArgb(palette[paletteIndex]);
 
+                // ОТЛАДКА: выводим цвета
+                Console.WriteLine($"[VIDEO] Border color: {borderColor} ({palette[borderColor].Name}) -> 0x{borderColor32:X8}");
+                Console.WriteLine($"[VIDEO] Pixel color: {paletteIndex} ({palette[paletteIndex].Name}) -> 0x{pixelColor32:X8}");
+
+                // Проверяем первый байт видеопамяти
+                byte testByte = _memory.Read(0x1800);
+                Console.WriteLine($"[VIDEO] VRAM[0x1800] = 0x{testByte:X2}");
+
+                int pixelsOn = 0;
+                int pixelsOff = 0;
+
                 for (int y = 0; y < ScreenHeight; y++)
                 {
                     int videoLine = (y + scrollOffset) % ScreenHeight;
@@ -106,10 +117,16 @@ namespace Vector06cEmulator
                         byte pixelByte = _memory.Read(addr);
                         int bitPos = 7 - (x % 8);
                         bool pixelOn = (pixelByte & (1 << bitPos)) != 0;
+
+                        if (pixelOn) pixelsOn++; else pixelsOff++;
+
                         uint color = pixelOn ? pixelColor32 : borderColor32;
                         ptr[y * ScreenWidth + x] = color;
                     }
                 }
+
+                Console.WriteLine($"[VIDEO] Pixels: ON={pixelsOn}, OFF={pixelsOff}");
+                Console.WriteLine($"[VIDEO] First pixel color: 0x{ptr[0]:X8}");
             }
 
             bitmap.UnlockBits(bitmapData);

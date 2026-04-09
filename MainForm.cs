@@ -152,6 +152,7 @@ namespace Vector06cEmulator
             Controls.Add(pauseButton);
             Controls.Add(statusLabel);
 
+            CreatePatternTestRom();
             CreateSimpleDebugRom();
             /*CreateDebugRom();
             CreateWorkingTestRom();
@@ -911,9 +912,24 @@ namespace Vector06cEmulator
 
                 if (emulator.Cpu.Halted)
                 {
-                    DebugLog("!!! HALT INSTRUCTION EXECUTED !!!");
-                    break;
+                    DebugLog("\n=== VIDEO RAM CHECK ===");
+                    byte vram0 = emulator.Memory.Read(0x1800);
+                    byte vram1 = emulator.Memory.Read(0x1801);
+                    DebugLog($"VRAM[0x1800] = 0x{vram0:X2}");
+                    DebugLog($"VRAM[0x1801] = 0x{vram1:X2}");
+
+                    // Проверяем, что порты установлены правильно
+                    byte border = emulator.IOBus.In(0x00);
+                    byte color = emulator.IOBus.In(0x01);
+                    DebugLog($"Border color (port 0x00) = {border}");
+                    DebugLog($"Pixel color (port 0x01) = {color}");
                 }
+
+                // Обновляем экран
+                emulator.Video.UpdateScreen();
+                pictureBox.Image?.Dispose();
+                pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
+
             }
 
             // Обновляем экран
@@ -1363,6 +1379,44 @@ namespace Vector06cEmulator
             string path = Path.Combine(GetProjectPath(), "test_graphics.rom");
             File.WriteAllBytes(path, romData);
             DebugLog($"[ROM] test_graphics.rom создан ({romData.Length} байт) → {path}");
+        }
+
+
+        private void CreatePatternTestRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // Устанавливаем красный фон и белые пиксели для контраста
+            Emit(0x3E, 0x04);        // MVI A, 4 (красный)
+            Emit(0xD3, 0x00);        // OUT 0x00
+
+            Emit(0x3E, 0x07);        // MVI A, 7 (белый)
+            Emit(0xD3, 0x01);        // OUT 0x01
+
+            // Заполняем первые 16 байт видеопамяти паттерном 0xFF
+            Emit(0x21, 0x00, 0x18);  // LXI H, 0x1800
+            Emit(0x36, 0xFF);        // MVI M, 0xFF
+            Emit(0x2C);              // INR L
+            Emit(0x36, 0xFF);        // MVI M, 0xFF
+            Emit(0x2C);              // INR L
+            Emit(0x36, 0xFF);        // MVI M, 0xFF
+            Emit(0x2C);              // INR L
+            Emit(0x36, 0xFF);        // MVI M, 0xFF
+
+            // HLT
+            Emit(0x76);
+
+            var romData = code.ToArray();
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pattern_test.rom");
+            File.WriteAllBytes(path, romData);
+
+            DebugLog($"\n=== PATTERN TEST ROM ===");
+            for (int i = 0; i < romData.Length; i += 8)
+            {
+                string hex = BitConverter.ToString(romData, i, Math.Min(8, romData.Length - i)).Replace("-", " ");
+                DebugLog($"0x{(0x0100 + i):X4}: {hex}");
+            }
         }
 
         private void CreateSimpleDebugRom()
