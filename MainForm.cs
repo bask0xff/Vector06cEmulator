@@ -537,7 +537,7 @@ namespace Vector06cEmulator
             DebugLog($"[ROM] animation.rom создан ({romData.Length} байт)");
         }
 
-        private void CreateTestGraphicsRom0()   
+        private void CreateTestGraphicsRom0()
         {
             byte[] romData = new byte[]
             {
@@ -886,49 +886,49 @@ namespace Vector06cEmulator
         }
 
         private void ScreenTimer_Tick(object? sender, EventArgs e)
-{
-    for (int i = 0; i < 100; i++)
-    {
-        if (emulator.Cpu.Halted)
         {
-            isRunning = false;
-            screenTimer.Stop();
-            statusLabel.Text = "Статус: HLT (остановлен)";
-            runButton.Enabled = true;
-            pauseButton.Enabled = false;
-            DebugLog("CPU HALTED - остановка эмуляции");
-            break;
+            for (int i = 0; i < 100; i++)
+            {
+                if (emulator.Cpu.Halted)
+                {
+                    isRunning = false;
+                    screenTimer.Stop();
+                    statusLabel.Text = "Статус: HLT (остановлен)";
+                    runButton.Enabled = true;
+                    pauseButton.Enabled = false;
+                    DebugLog("CPU HALTED - остановка эмуляции");
+                    break;
+                }
+                emulator.Step();
+            }
+
+            // ПОСЛЕ выполнения, если CPU остановлен, проверяем пиксели
+            if (emulator.Cpu.Halted)
+            {
+                DebugLog("\n=== PIXEL CHECK ===");
+                emulator.Video.CheckPixel(0, 0);
+                emulator.Video.CheckPixel(7, 0);
+                emulator.Video.CheckPixel(8, 0);
+
+                byte border = emulator.IOBus.In(0x00);
+                byte color = emulator.IOBus.In(0x01);
+                DebugLog($"Port 0x00 (border) = {border}");
+                DebugLog($"Port 0x01 (color) = {color}");
+
+                DebugLog("\n=== VRAM DUMP (first 16 bytes) ===");
+                for (int i = 0; i < 16; i++)
+                {
+                    byte val = emulator.Memory.Read((ushort)(0x1800 + i));
+                    DebugLog($"0x{0x1800 + i:X4}: 0x{val:X2}");
+                }
+            }
+
+            // ВАЖНО: вызываем UpdateScreenDebug, а не UpdateScreen
+            emulator.Video.UpdateScreenDebug();
+
+            pictureBox.Image?.Dispose();
+            pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
         }
-        emulator.Step();
-    }
-
-    // ПОСЛЕ выполнения, если CPU остановлен, проверяем пиксели
-    if (emulator.Cpu.Halted)
-    {
-        DebugLog("\n=== PIXEL CHECK ===");
-        emulator.Video.CheckPixel(0, 0);
-        emulator.Video.CheckPixel(7, 0);
-        emulator.Video.CheckPixel(8, 0);
-
-        byte border = emulator.IOBus.In(0x00);
-        byte color = emulator.IOBus.In(0x01);
-        DebugLog($"Port 0x00 (border) = {border}");
-        DebugLog($"Port 0x01 (color) = {color}");
-
-        DebugLog("\n=== VRAM DUMP (first 16 bytes) ===");
-        for (int i = 0; i < 16; i++)
-        {
-            byte val = emulator.Memory.Read((ushort)(0x1800 + i));
-            DebugLog($"0x{0x1800 + i:X4}: 0x{val:X2}");
-        }
-    }
-
-    // ВАЖНО: вызываем UpdateScreenDebug, а не UpdateScreen
-    emulator.Video.UpdateScreenDebug();
-    
-    pictureBox.Image?.Dispose();
-    pictureBox.Image = (Bitmap)emulator.Video.GetBitmap().Clone();
-}
 
 
         protected override void OnFormClosing(FormClosingEventArgs e)
