@@ -431,8 +431,6 @@ namespace Vector06cEmulator
             }
         }
 
-        // ── Вспомогательные арифметические операции ──────────────────
-
         byte Inr(byte v)
         {
             AC = (v & 0x0F) == 0x0F;

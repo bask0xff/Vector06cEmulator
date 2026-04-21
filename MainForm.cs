@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -154,6 +154,8 @@ namespace Vector06cEmulator
 
             CreatePatternTestRom();
             CreateSimpleDebugRom();
+            CreateTetrisRom();
+            CreateFactorialRom(3, "factorial-3.rom");
             /*CreateDebugRom();
             CreateWorkingTestRom();
             CreateMinimalTestRom();
@@ -1453,6 +1455,149 @@ namespace Vector06cEmulator
                 string hex = BitConverter.ToString(romData, i, Math.Min(8, romData.Length - i)).Replace("-", " ");
                 DebugLog($"0x{(0x0100 + i):X4}: {hex}");
             }
+        }
+
+        private void CreateTetrisRom()
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            ushort varX = 0xC000; // X in bytes (0..31)
+            ushort varY = 0xC001; // Y in pixels (0..255)
+
+            // Video setup
+            Emit(0x3E, 0x00, 0xD3, 0x00); // black background
+            Emit(0x3E, 0x06, 0xD3, 0x01); // yellow piece
+            Emit(0x3E, 0x00, 0xD3, 0x10); // scroll 0
+
+            // Clear VRAM (0x1800..0x37FF)
+            Emit(0x21, 0x00, 0x18);
+            Emit(0x11, 0x00, 0x20);
+            Emit(0xAF);
+            ushort clearLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x77, 0x23, 0x1B, 0x7A, 0xB3, 0xC2, (byte)clearLoop, (byte)(clearLoop >> 8));
+
+            // Initial position
+            Emit(0x3E, 0x10, 0x32, (byte)varX, (byte)(varX >> 8)); // X=16
+            Emit(0x3E, 0x00, 0x32, (byte)varY, (byte)(varY >> 8)); // Y=0
+
+            ushort mainLoop = (ushort)(0x0100 + code.Count);
+
+            // Erase previous block
+            Emit(0x0E, 0x00);             // C=0x00
+            Emit(0xCD, 0x00, 0x02);       // CALL DrawBlock
+
+            // Read keyboard (A=left, D=right)
+            Emit(0xDB, 0x10);             // IN 0x10
+            Emit(0x2F);                   // invert bits (pressed -> 1)
+            Emit(0x47);                   // B = key bits
+
+            // Left on bit2 (Key A code 0x0A => bit 2)
+            Emit(0x78, 0xE6, 0x04, 0xCA);
+            int noLeftPatch = code.Count;
+            Emit(0x00, 0x00);             // JZ noLeft
+            Emit(0x3A, (byte)varX, (byte)(varX >> 8), 0x3D, 0xE6, 0x1F, 0x32, (byte)varX, (byte)(varX >> 8));
+            ushort noLeftAddr = (ushort)(0x0100 + code.Count);
+            code[noLeftPatch] = (byte)noLeftAddr;
+            code[noLeftPatch + 1] = (byte)(noLeftAddr >> 8);
+
+            // Right on bit5 (Key D code 0x0D => bit 5)
+            Emit(0x78, 0xE6, 0x20, 0xCA);
+            int noRightPatch = code.Count;
+            Emit(0x00, 0x00);             // JZ noRight
+            Emit(0x3A, (byte)varX, (byte)(varX >> 8), 0x3C, 0xE6, 0x1F, 0x32, (byte)varX, (byte)(varX >> 8));
+            ushort noRightAddr = (ushort)(0x0100 + code.Count);
+            code[noRightPatch] = (byte)noRightAddr;
+            code[noRightPatch + 1] = (byte)(noRightAddr >> 8);
+
+            // Y++
+            Emit(0x3A, (byte)varY, (byte)(varY >> 8), 0x3C, 0x32, (byte)varY, (byte)(varY >> 8));
+            // If Y >= 248 -> reset Y to 0 (block reached bottom)
+            Emit(0xFE, 0xF8, 0xDA);
+            int noResetPatch = code.Count;
+            Emit(0x00, 0x00);             // JC noReset
+            Emit(0xAF, 0x32, (byte)varY, (byte)(varY >> 8));
+            ushort noResetAddr = (ushort)(0x0100 + code.Count);
+            code[noResetPatch] = (byte)noResetAddr;
+            code[noResetPatch + 1] = (byte)(noResetAddr >> 8);
+
+            // Draw current block
+            Emit(0x0E, 0xFF);             // C=0xFF
+            Emit(0xCD, 0x00, 0x02);       // CALL DrawBlock
+
+            // Delay
+            Emit(0x11, 0xFF, 0x03);
+            ushort delayLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x1B, 0x7A, 0xB3, 0xC2, (byte)delayLoop, (byte)(delayLoop >> 8));
+
+            Emit(0xC3, (byte)mainLoop, (byte)(mainLoop >> 8)); // JMP mainLoop
+
+            // Align DrawBlock at 0x0200 for fixed CALL address.
+            while (code.Count < 0x0100) code.Add(0x00);
+
+            // DrawBlock: write 8 bytes vertically from computed VRAM address.
+            Emit(0x3A, (byte)varY, (byte)(varY >> 8)); // LDA varY
+            Emit(0x6F, 0x26, 0x00);                   // L=A, H=0
+            Emit(0x29, 0x29, 0x29, 0x29, 0x29);       // HL *= 32
+            Emit(0x11, (byte)varX, (byte)(varX >> 8));
+            Emit(0x1A);                               // A = (varX)
+            Emit(0x5F, 0x16, 0x00);                   // DE = X
+            Emit(0x19);                               // HL += DE
+            Emit(0x11, 0x00, 0x18);                   // DE = 0x1800
+            Emit(0x19);                               // HL += DE
+            Emit(0x06, 0x08);                         // B = 8 lines
+            ushort drawLoop = (ushort)(0x0100 + code.Count);
+            Emit(0x79, 0x77);                         // A=C, M=A
+            Emit(0x11, 0x20, 0x00, 0x19);             // HL += 32
+            Emit(0x05, 0xC2, (byte)drawLoop, (byte)(drawLoop >> 8));
+            Emit(0xC9);                               // RET
+
+            var romData = code.ToArray();
+            string path = Path.Combine(GetProjectPath(), "tetris.rom");
+            File.WriteAllBytes(path, romData);
+            DebugLog($"Tetris ROM created: {romData.Length} bytes -> {path}");
+        }
+
+        private void CreateFactorialRom(byte n, string fileName)
+        {
+            var code = new List<byte>();
+            void Emit(params byte[] b) => code.AddRange(b);
+
+            // B = n, result starts at 1 in [0xC100]
+            Emit(0x06, n);                         // MVI B, n
+            Emit(0x3E, 0x01);                      // MVI A, 1
+            Emit(0x32, 0x00, 0xC1);                // STA 0xC100
+
+            // if (B == 0) goto done
+            Emit(0x78);                            // MOV A, B
+            Emit(0xB7);                            // ORA A
+            Emit(0xCA, 0x23, 0x01);                // JZ done
+
+            // outer_loop:
+            // product = result * B (via repeated addition)
+            Emit(0x3A, 0x00, 0xC1);                // LDA 0xC100 (result)
+            Emit(0x5F);                            // MOV E, A   (multiplicand)
+            Emit(0x50);                            // MOV D, B   (multiplier)
+            Emit(0x3E, 0x00);                      // MVI A, 0   (product)
+
+            // mul_loop:
+            Emit(0x83);                            // ADD E
+            Emit(0x15);                            // DCR D
+            Emit(0xC2, 0x14, 0x01);                // JNZ mul_loop
+
+            Emit(0x32, 0x00, 0xC1);                // STA 0xC100 (save product)
+            Emit(0x05);                            // DCR B
+            Emit(0xC2, 0x0A, 0x01);                // JNZ outer_loop
+
+            // done:
+            Emit(0x3A, 0x00, 0xC1);                // LDA 0xC100
+            Emit(0x32, 0x00, 0x80);                // STA 0x8000 (result for debug view)
+            Emit(0x76);                            // HLT
+
+            var romData = code.ToArray();
+            string path = Path.Combine(GetProjectPath(), fileName);
+            File.WriteAllBytes(path, romData);
+            DebugLog($"Factorial ROM created: n={n}, size={romData.Length} -> {path}");
         }
 
         private void CreateDebugRom()
