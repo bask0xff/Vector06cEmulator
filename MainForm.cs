@@ -155,7 +155,7 @@ namespace Vector06cEmulator
             CreatePatternTestRom();
             CreateSimpleDebugRom();
             CreateTetrisRom();
-            CreateFactorialRom(3, "factorial-3.rom");
+            CreateFactorialRom(5, "factorial-5.rom");
             /*CreateDebugRom();
             CreateWorkingTestRom();
             CreateMinimalTestRom();
@@ -1562,6 +1562,21 @@ namespace Vector06cEmulator
         {
             var code = new List<byte>();
             void Emit(params byte[] b) => code.AddRange(b);
+            int Addr() => 0x0100 + code.Count;
+            int EmitJumpPlaceholder(byte opcode)
+            {
+                Emit(opcode, 0x00, 0x00);
+                return code.Count - 2;
+            }
+            void PatchJump(int patchIndex, int targetAddress)
+            {
+                code[patchIndex] = (byte)(targetAddress & 0xFF);
+                code[patchIndex + 1] = (byte)((targetAddress >> 8) & 0xFF);
+            }
+
+            // Minimal video setup so result is visible on screen.
+            Emit(0x3E, 0x00, 0xD3, 0x00);          // MVI A,0 / OUT 00 (black background)
+            Emit(0x3E, 0x07, 0xD3, 0x01);          // MVI A,7 / OUT 01 (white pixels)
 
             // B = n, result starts at 1 in [0xC100]
             Emit(0x06, n);                         // MVI B, n
@@ -1571,9 +1586,10 @@ namespace Vector06cEmulator
             // if (B == 0) goto done
             Emit(0x78);                            // MOV A, B
             Emit(0xB7);                            // ORA A
-            Emit(0xCA, 0x23, 0x01);                // JZ done
+            int jzDonePatch = EmitJumpPlaceholder(0xCA); // JZ done
 
             // outer_loop:
+            int outerLoopAddr = Addr();
             // product = result * B (via repeated addition)
             Emit(0x3A, 0x00, 0xC1);                // LDA 0xC100 (result)
             Emit(0x5F);                            // MOV E, A   (multiplicand)
@@ -1581,18 +1597,33 @@ namespace Vector06cEmulator
             Emit(0x3E, 0x00);                      // MVI A, 0   (product)
 
             // mul_loop:
+            int mulLoopAddr = Addr();
             Emit(0x83);                            // ADD E
             Emit(0x15);                            // DCR D
-            Emit(0xC2, 0x14, 0x01);                // JNZ mul_loop
+            Emit(0xC2, (byte)(mulLoopAddr & 0xFF), (byte)(mulLoopAddr >> 8)); // JNZ mul_loop
 
             Emit(0x32, 0x00, 0xC1);                // STA 0xC100 (save product)
             Emit(0x05);                            // DCR B
-            Emit(0xC2, 0x0A, 0x01);                // JNZ outer_loop
+            Emit(0xC2, (byte)(outerLoopAddr & 0xFF), (byte)(outerLoopAddr >> 8)); // JNZ outer_loop
 
             // done:
+            int doneAddr = Addr();
             Emit(0x3A, 0x00, 0xC1);                // LDA 0xC100
             Emit(0x32, 0x00, 0x80);                // STA 0x8000 (result for debug view)
+
+            // Make result clearly visible in the top screen row.
+            Emit(0x47);                            // MOV B, A
+            Emit(0x21, 0x00, 0x18);                // LXI H, 0x1800
+            Emit(0x0E, 0x20);                      // MVI C, 32 bytes
+            int visLoopAddr = Addr();
+            Emit(0x78);                            // MOV A, B
+            Emit(0x77);                            // MOV M, A
+            Emit(0x23);                            // INX H
+            Emit(0x0D);                            // DCR C
+            Emit(0xC2, (byte)(visLoopAddr & 0xFF), (byte)(visLoopAddr >> 8)); // JNZ vis_loop
             Emit(0x76);                            // HLT
+
+            PatchJump(jzDonePatch, doneAddr);
 
             var romData = code.ToArray();
             string path = Path.Combine(GetProjectPath(), fileName);
