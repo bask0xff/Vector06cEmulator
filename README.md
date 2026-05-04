@@ -1,6 +1,6 @@
 Vector 06-C Emulator
 
-Pet-project. It's just my hobby and nostalgie
+Pet-project. It's just a hobby and nostalgie
 
 Example:
 https://github.com/user-attachments/assets/e697abf7-ab27-4278-bf41-27cae8159972
