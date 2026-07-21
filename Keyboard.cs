@@ -6,15 +6,15 @@ namespace Vector06cEmulator
 {
     public class Keyboard
     {
-        // Карта клавиш Вектор-06Ц
+        // Kys map of "Вектор-06Ц"
         private readonly Dictionary<Keys, byte> keyMap = new Dictionary<Keys, byte>
         {
-            // Цифры
+            // Numbers
             { Keys.D0, 0x00 }, { Keys.D1, 0x01 }, { Keys.D2, 0x02 }, { Keys.D3, 0x03 },
             { Keys.D4, 0x04 }, { Keys.D5, 0x05 }, { Keys.D6, 0x06 }, { Keys.D7, 0x07 },
             { Keys.D8, 0x08 }, { Keys.D9, 0x09 },
             
-            // Буквы
+            // Symbols
             { Keys.A, 0x0A }, { Keys.B, 0x0B }, { Keys.C, 0x0C }, { Keys.D, 0x0D },
             { Keys.E, 0x0E }, { Keys.F, 0x0F }, { Keys.G, 0x10 }, { Keys.H, 0x11 },
             { Keys.I, 0x12 }, { Keys.J, 0x13 }, { Keys.K, 0x14 }, { Keys.L, 0x15 },
@@ -23,7 +23,7 @@ namespace Vector06cEmulator
             { Keys.U, 0x1E }, { Keys.V, 0x1F }, { Keys.W, 0x20 }, { Keys.X, 0x21 },
             { Keys.Y, 0x22 }, { Keys.Z, 0x23 },
             
-            // Специальные клавиши
+            // Special sympols
             { Keys.Enter, 0x24 }, { Keys.Space, 0x25 }, { Keys.Back, 0x26 },
             { Keys.Escape, 0x27 }, { Keys.Tab, 0x28 }
         };
