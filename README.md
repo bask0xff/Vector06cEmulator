@@ -1,4 +1,4 @@
-Vector 06-C Emulator
+Vector 06-C Emulator In Russian it called "Вектор-06Ц"
 
 Pet-project. It's just a hobby and nostalgie
 
